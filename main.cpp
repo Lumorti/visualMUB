@@ -106,8 +106,8 @@ public:
 				sf::Vector2f mousePosition = window.mapPixelToCoords(sf::Vector2i(event.mouseMove.x, event.mouseMove.y));
 
 				// Move that point to the mouse, talking into account the size
-				double deltaX = mousePosition.x - points[dragging].getPosition().x - pointSize;
-				double deltaY = mousePosition.y - points[dragging].getPosition().y - pointSize;
+				float deltaX = mousePosition.x - points[dragging].getPosition().x - pointSize;
+				float deltaY = mousePosition.y - points[dragging].getPosition().y - pointSize;
 				points[dragging].move(deltaX, deltaY);
 
 				// The points before the dragged point
@@ -164,17 +164,51 @@ public:
 };
 
 // Entry point
-int main() {
+int main(int argc, char* argv[]) {
 
 	// Settings
 	int d = 3;
 	std::vector<int> N = {d, 1, 1, 1};
-	int gridWidth = 2;
+
+	// Parse the command line arguments
+	std::string arg = "";
+	for	(int i = 1; i < argc; ++i) {
+		arg = argv[i];
+
+		// Setting the basis sizes
+		if (std::string(argv[i]) == "-N") {
+
+			// Parse the comma seperated string
+			N.clear();
+			std::string NString = argv[i + 1];
+			std::string delimiter = ",";
+			size_t pos = 0;
+			std::string token;
+			while ((pos = NString.find(delimiter)) != std::string::npos) {
+				token = NString.substr(0, pos);
+				N.push_back(std::stoi(token));
+				NString.erase(0, pos + delimiter.length());
+			}
+			N.push_back(std::stoi(NString));
+
+			// Require that the first basis size is the same as the dimension
+			d = N[0];
+
+		// If asked to display the help
+		} else if (std::string(argv[i]) == "-h") {
+			std::cout << "Usage: " << argv[0] << " [-d <dimension>] [-N <basis sizes>]" << std::endl;
+			return 0;
+
+		}
+
+	}
 
 	// Create the main window
 	sf::ContextSettings settings;
     settings.antialiasingLevel = 3.0;
-    sf::RenderWindow window(sf::VideoMode(800, 600), "Visual MUBs", sf::Style::Close, settings);
+	int windowWidth = 800;
+	int windowHeight = 600;
+    sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), "Visual MUBs", sf::Style::Close, settings);
 	window.setFramerateLimit(60);
 
 	// Load the font
@@ -184,43 +218,92 @@ int main() {
 	}
 
 	// Create each of the chains representing the MUBs
-	double scaling = 100.0;
+	float scaling = 100.0;
 	int gridX = 0;
 	int gridY = 0;
+	float minX = 0;
+	float minY = 0;
+	float maxX = 0;
+	float maxY = 0;
 	std::vector<Chain> chains;
 	for (int i = 1; i < N.size(); ++i) {
 		for (int j = i; j < N.size(); ++j) {
 			for (int k = 0; k < N[i]; ++k) {
 				for (int l = 0; l < N[j]; ++l) {
 
-					// We already enforce normality
-					if (i == j && k == l) {
+					// The location of the chain
+					int gridY = i*(N.size()-1) + k;
+					int gridX = j*(N.size()-1) + l;
+					float currentX = gridX*(2*scaling*sqrt(d));
+					float currentY = gridY*(2*scaling*sqrt(d));
+					std::string name = "";
+
+					// Only the upper triangle
+					if (gridX <= gridY) {
 						continue;
 					}
 
-					// The location of the chain
-					float currentX = 200 + gridX*(scaling*2.5);
-					float currentY = 200 + gridY*(scaling*2.5);
+					// Update the min and max values
+					minX = std::min(minX, currentX);
+					minY = std::min(minY, currentY);
+					maxX = std::max(maxX, currentX);
+					maxY = std::max(maxY, currentY);
 						
 					// Orthogonality
 					if (i == j) {
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, "ortho"));
+						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, name));
 
 					// Mutually unbiasedness
 					} else {
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, "mub"));
-					
-					}
-
-					// Update the grid coords
-					gridX += 1;
-					if (gridX >= gridWidth) {
-						gridX = 0;
-						gridY += 1;
+						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, name));
 					}
 
 				}
 			}
+		}
+	}
+
+	// Add the linear constraints TODO
+	for (int i = 1; i < N.size(); ++i) {
+		for (int j = i; j < N.size(); ++j) {
+			for (int k = 0; k < N[i]; ++k) {
+				for (int l = 0; l < N[j]; ++l) {
+
+				}
+			}
+		}
+	}
+
+	// Add column / row labels
+	std::vector<sf::Text> labels;
+	for (int i = 1; i < N.size(); ++i) {
+		for (int j = 0; j < N[i]; ++j) {
+
+			// The location of the chain
+			int gridY = i*(N.size()-1) + j;
+			int gridX = d-1;
+			float currentX = gridX*(2*scaling*sqrt(d)) + scaling;
+			float currentY = gridY*(2*scaling*sqrt(d));
+			std::string name = std::to_string(i) + " " + std::to_string(j);
+
+			// Add the label to the row
+			sf::Text label;
+			label.setFont(font);
+			label.setString(name);
+			label.setCharacterSize(20);
+			label.setFillColor(sf::Color::Black);
+			label.setOrigin(label.getLocalBounds().width/2.0, label.getLocalBounds().height/2.0);
+			label.setPosition(currentX, currentY);
+			labels.push_back(label);
+
+			// Add the label to the column
+			gridY = d-1;
+			gridX = i*(N.size()-1) + j;
+			currentX = gridX*(2*scaling*sqrt(d));
+			currentY = gridY*(2*scaling*sqrt(d)) + scaling;
+			label.setPosition(currentX, currentY);
+			labels.push_back(label);
+
 		}
 	}
 
@@ -229,7 +312,11 @@ int main() {
 	sf::Vector2i lastMousePos;
 	sf::View currentView = window.getView();
 	sf::Vector2f lastViewPos;
-	double zoomLevel = 1.0;
+	float zoomLevel = 1.0;
+
+	// Set the initial view so we can see everything
+	currentView.setCenter((minX+maxX+windowWidth+scaling)/2.0, (minY+maxY+windowHeight+scaling)/2.0);
+	window.setView(currentView);
 
 	// Start the main loop
     while (window.isOpen()) {
@@ -299,6 +386,9 @@ int main() {
         window.clear(sf::Color::White);
 		for (auto& chain : chains) {
 			chain.draw(window, font);
+		}
+		for (auto& label : labels) {
+			window.draw(label);
 		}
         window.display();
 
