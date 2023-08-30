@@ -1,11 +1,11 @@
 # The compiler to use
 CXX = g++
 
-# Compiler flags
-CXXFLAGS = -std=c++11
+# Compiler flags 
+CXXFLAGS = -std=c++11 -fmax-errors=2 
 
 # Linker flags
-LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system
+LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -I/usr/include/eigen3
 
 # The name of your output program
 OUTPUT = run

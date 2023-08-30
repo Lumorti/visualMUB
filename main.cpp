@@ -1,6 +1,8 @@
 #include <SFML/Graphics.hpp>
 #include <math.h>
 #include <iostream>
+#include <Eigen/Dense>
+#include <unordered_map>
 
 class Chain {
 private:
@@ -8,11 +10,11 @@ private:
     std::vector<sf::RectangleShape> lines;
     int dragging = -1;
 	int pointSize = 5;
-	int lineThickness = 2;
+	int lineThickness = 5;
 	sf::Vector2f startPosition;
 	sf::CircleShape radiusCircle;
 	int vectorLength;
-	sf::Text label;
+	std::pair<int,int> vecIndicies;
 
 public:
 
@@ -25,18 +27,24 @@ public:
 		}
 	}
 
+	// Getter
+	std::pair<int, int> getVecIndicies() {
+		return vecIndicies;
+	}
+
 	// Check if the user is dragging any point
 	bool isDragging() {
 		return dragging != -1;
 	}
 
 	// Main constructor
-    Chain(int numVectors, sf::Vector2f startPosition_, int vectorLength_, int circleRadius_, std::string name_) {
+    Chain(int numVectors, sf::Vector2f startPosition_, int vectorLength_, int circleRadius_, std::pair<int,int> vecIndicies_) {
 
 		// Set the size of the points
 		numVectors = numVectors+1;
 		vectorLength = vectorLength_;
 		startPosition = startPosition_;
+		vecIndicies = vecIndicies_;
 
 		// Create the points
         for (int i = 0; i < numVectors; ++i) {
@@ -61,12 +69,6 @@ public:
 		radiusCircle.setFillColor(sf::Color::Transparent);
 		radiusCircle.setOutlineColor(sf::Color::Red);
 		radiusCircle.setOutlineThickness(lineThickness);
-
-		// Create the title
-		label.setString(name_);
-		label.setCharacterSize(20);
-		label.setFillColor(sf::Color::Black);
-		label.setPosition(startPosition.x - name_.size()*5, startPosition.y - circleRadius_ - 30);
 
 		// Set all the line positions
 		updateLines();
@@ -148,11 +150,9 @@ public:
 
     }
 
-	// Draw the points, lines, circle and labels
+	// Draw the points, lines, circle
     void draw(sf::RenderWindow& window, sf::Font& font) {
 		window.draw(radiusCircle);
-		label.setFont(font);
-		window.draw(label);
 		for (const auto& line : lines) {
 			window.draw(line);
 		}
@@ -225,18 +225,27 @@ int main(int argc, char* argv[]) {
 	float minY = 0;
 	float maxX = 0;
 	float maxY = 0;
+	int NSoFarI = 0;
+	int NSoFarJ = 0;
 	std::vector<Chain> chains;
 	for (int i = 1; i < N.size(); ++i) {
+		int NSoFarI = 0;
+		for (int m = 1; m < i; ++m) {
+			NSoFarI += N[m];
+		}
 		for (int j = i; j < N.size(); ++j) {
+			int NSoFarJ = 0;
+			for (int m = 1; m < j; ++m) {
+				NSoFarJ += N[m];
+			}
 			for (int k = 0; k < N[i]; ++k) {
 				for (int l = 0; l < N[j]; ++l) {
 
-					// The location of the chain
-					int gridY = i*(N.size()-1) + k;
-					int gridX = j*(N.size()-1) + l;
+					// The location of the chain TODO
+					int gridY = NSoFarI + k;
+					int gridX = NSoFarJ + l;
 					float currentX = gridX*(2*scaling*sqrt(d));
 					float currentY = gridY*(2*scaling*sqrt(d));
-					std::string name = "";
 
 					// Only the upper triangle
 					if (gridX <= gridY) {
@@ -251,11 +260,11 @@ int main(int argc, char* argv[]) {
 						
 					// Orthogonality
 					if (i == j) {
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, name));
+						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}));
 
 					// Mutually unbiasedness
 					} else {
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, name));
+						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}));
 					}
 
 				}
@@ -263,13 +272,86 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// Add the linear constraints TODO
-	for (int i = 1; i < N.size(); ++i) {
-		for (int j = i; j < N.size(); ++j) {
-			for (int k = 0; k < N[i]; ++k) {
-				for (int l = 0; l < N[j]; ++l) {
+	// Create an empty eigen matrix
+	Eigen::MatrixXd A = Eigen::MatrixXd::Zero(std::pow(chains.size(), 2), chains.size());
+	int nextInd = 0;
 
+	// Add the linear constraints
+	for (int i = 0; i < chains.size(); ++i) {
+		std::pair<int,int> vecIndicies1 = chains[i].getVecIndicies();	
+		for (int j = i+1; j < chains.size(); ++j) {
+			std::pair<int,int> vecIndicies2 = chains[j].getVecIndicies();
+
+			// theta_abi + theta_cai = theta_cbi
+			if (vecIndicies1.first == vecIndicies2.second) {
+
+				//std::pair<int,int> lookingFor = std::make_pair(vecIndicies1.second, vecIndicies2.first);
+				std::pair<int,int> lookingFor = std::make_pair(vecIndicies2.first, vecIndicies1.second);
+
+				// Find the other
+				int otherInd = -1;
+				for (int k = 0; k < chains.size(); ++k) {
+					if (chains[k].getVecIndicies() == lookingFor) {
+						otherInd = k;
+						break;
+					}
 				}
+
+				// Add to the matrix
+				if (otherInd >= 0) {
+					std::cout << "chain " << i << " and chain " << j << " are connected to chain " << otherInd << std::endl;
+					A(nextInd, i) = 1;
+					A(nextInd, j) = 1;
+					A(nextInd, otherInd) = -1;
+					nextInd++;
+				}
+
+			}
+
+		}
+	}
+
+	// Remove the zero rows
+	A.conservativeResize(nextInd, Eigen::NoChange);
+
+	// Flip the matrix horizontally
+	A = A.rowwise().reverse().eval();
+
+	// Row reduce the matrix A using Eigen
+	Eigen::FullPivLU<Eigen::MatrixXd> lu(A);
+	Eigen::MatrixXd reducedA = lu.matrixLU().triangularView<Eigen::Upper>();
+	int rank = lu.rank();
+	reducedA.conservativeResize(rank, Eigen::NoChange);
+
+	// Make sure each of the diagonals is 1
+	for (int i = 0; i < reducedA.rows(); ++i) {
+		reducedA.row(i) /= reducedA(i,i);
+	}
+
+	// Make sure each of the diagonals is the only one in that column
+	for (int i=0; i<reducedA.rows(); ++i) {
+		for (int j=i+1; j<reducedA.rows(); ++j) {
+			if (abs(reducedA(i,j)) > 1e-10) {
+				reducedA.row(i) -= reducedA(i,j)*reducedA.row(j);
+			}
+		}
+	}
+
+	// For each row of the reduced matrix, get the first one TODO
+	std::unordered_map<int, std::vector<std::pair<double, int>>> relations;
+	for (int i = 0; i < reducedA.rows(); ++i) {
+		for (int j = 0; j < reducedA.cols(); ++j) {
+			if (reducedA(i,j) != 0) {
+				std::vector<std::pair<double, int>> terms;
+				std::cout << "chain " << j << " is defined by chains ";
+				for (int k = j+1; k < reducedA.cols(); ++k) {
+					if (std::abs(reducedA(i,k)) > 1e-10) {
+						terms.push_back(std::make_pair(reducedA(i,k), k));
+						std::cout << reducedA(i,k) << " * " << k << " + ";
+					}
+				}
+				std::cout << std::endl;
+				break;
 			}
 		}
 	}
@@ -280,9 +362,9 @@ int main(int argc, char* argv[]) {
 		for (int j = 0; j < N[i]; ++j) {
 
 			// The location of the chain
-			int gridY = i*(N.size()-1) + j;
-			int gridX = d-1;
-			float currentX = gridX*(2*scaling*sqrt(d)) + scaling;
+			int gridX = -1;
+			int gridY = (i-1)*(N.size()-1) + j;
+			float currentX = gridX*(2*scaling*sqrt(d));
 			float currentY = gridY*(2*scaling*sqrt(d));
 			std::string name = std::to_string(i) + " " + std::to_string(j);
 
@@ -297,10 +379,10 @@ int main(int argc, char* argv[]) {
 			labels.push_back(label);
 
 			// Add the label to the column
-			gridY = d-1;
-			gridX = i*(N.size()-1) + j;
+			gridX = (i-1)*(N.size()-1) + j;
+			gridY = -1;
 			currentX = gridX*(2*scaling*sqrt(d));
-			currentY = gridY*(2*scaling*sqrt(d)) + scaling;
+			currentY = gridY*(2*scaling*sqrt(d));
 			label.setPosition(currentX, currentY);
 			labels.push_back(label);
 
