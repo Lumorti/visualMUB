@@ -8,28 +8,50 @@ class Chain {
 private:
     std::vector<sf::CircleShape> points;
     std::vector<sf::RectangleShape> lines;
+	int numVectors = 0;
     int dragging = -1;
 	int pointSize = 5;
 	int lineThickness = 5;
 	sf::Vector2f startPosition;
 	sf::CircleShape radiusCircle;
 	int vectorLength;
-	std::pair<int,int> vecIndicies;
+	std::vector<double> angles;
+	std::pair<int,int> vecIndices;
+	std::vector<std::pair<double, Chain*>> relation;
+	double objective = 0.0;
+	sf::Text text;
 
 public:
 
-	// Update the lines based on the points
-	void updateLines() {
-		for (int i = 0; i < lines.size(); ++i) {
-			float angle = atan2(points[i + 1].getPosition().y - points[i].getPosition().y, points[i + 1].getPosition().x - points[i].getPosition().x);
-			lines[i].setPosition(points[i].getPosition().x + pointSize, points[i].getPosition().y + pointSize);
-			lines[i].setRotation(angle * 180 / 3.14159265358979323846);
+	// Update the points and lines based on the angles
+	void updatePointsAndLines() {
+
+		// Update the points based on the angles
+		sf::Vector2f prevPos = startPosition;
+		for (int i = 0; i < points.size(); ++i) {
+			points[i].setPosition(prevPos.x + vectorLength * sin(angles[i]), prevPos.y - vectorLength * cos(angles[i]));
+			prevPos = points[i].getPosition();
 		}
+
+		// Update the lines based on the points
+		prevPos = startPosition;
+		for (int i = 0; i < lines.size(); ++i) {
+			float angle = atan2(points[i].getPosition().y - prevPos.y, points[i].getPosition().x - prevPos.x);
+			lines[i].setPosition(prevPos.x + pointSize, prevPos.y + pointSize);
+			lines[i].setRotation(angle * 180.0 / M_PI);
+			prevPos = points[i].getPosition();
+		}
+
+	}
+
+	// Set how this chain is defined related to the others
+	void setRelation(std::vector<std::pair<double, Chain*>> relation_) {
+		relation = relation_;
 	}
 
 	// Getter
-	std::pair<int, int> getVecIndicies() {
-		return vecIndicies;
+	std::pair<int, int> getVecIndices() {
+		return vecIndices;
 	}
 
 	// Check if the user is dragging any point
@@ -37,30 +59,49 @@ public:
 		return dragging != -1;
 	}
 
+	// Check if the user can modify this chain
+	bool isFixed() {
+		return relation.size() != 0;
+	}
+
+	// Update the objective
+	void updateObjective() {
+
+		// How close the last point is versus the circle radius
+		double dist = sqrt(pow(points[points.size()-1].getPosition().x - startPosition.x, 2) + pow(points[points.size()-1].getPosition().y - startPosition.y, 2));
+		objective = abs(dist - radiusCircle.getRadius());
+
+		// Set the label text
+		text.setString(std::to_string(objective));
+
+	}
+
 	// Main constructor
-    Chain(int numVectors, sf::Vector2f startPosition_, int vectorLength_, int circleRadius_, std::pair<int,int> vecIndicies_) {
+    Chain(int numVectors_, sf::Vector2f startPosition_, int vectorLength_, int circleRadius_, std::pair<int,int> vecIndices_) {
 
 		// Set the size of the points
-		numVectors = numVectors+1;
+		numVectors = numVectors_;
 		vectorLength = vectorLength_;
 		startPosition = startPosition_;
-		vecIndicies = vecIndicies_;
+		vecIndices = vecIndices_;
 
-		// Create the points
+		// For each vector
         for (int i = 0; i < numVectors; ++i) {
+
+			// Create the point
             sf::CircleShape point(pointSize);
             point.setFillColor(sf::Color::Blue);
-            point.setPosition(startPosition.x + i * vectorLength, startPosition.y);
             points.push_back(point);
-        }
 
-		// Create the lines
-		for (int i = 0; i < numVectors - 1; ++i) {
+			// Create the angle
+			angles.push_back(0);
+
+			// Create the line
 			sf::RectangleShape line(sf::Vector2f(vectorLength, lineThickness));
 			line.setFillColor(sf::Color::Black);
-			line.setPosition(startPosition.x + i * vectorLength, startPosition.y);
 			lines.push_back(line);
-		}
+
+        }
 
 		// Create the radius circle
 		radiusCircle.setRadius(circleRadius_);
@@ -70,13 +111,19 @@ public:
 		radiusCircle.setOutlineColor(sf::Color::Red);
 		radiusCircle.setOutlineThickness(lineThickness);
 
+		// Create the label
+		text.setString(std::to_string(objective));
+		text.setCharacterSize(20);
+		text.setFillColor(sf::Color::Black);
+		text.setPosition(startPosition.x, startPosition.y - circleRadius_ - 20);
+
 		// Set all the line positions
-		updateLines();
+		update();
 
     }
 
 	// When an event happens, the chain should handle it
-    void handleEvent(const sf::Event& event, sf::RenderWindow& window) {
+    bool handleEvent(const sf::Event& event, sf::RenderWindow& window) {
 
 		// When the mouse button is pressed, the point being clicked should start being dragged
 		if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
@@ -92,10 +139,16 @@ public:
 				}
 			}
 
+			// If the mouse is inside any of the points, return true
+			if (dragging != -1) {
+				return true;
+			}
+
 		// When the mouse button is released, the point being dragged should stop
-		} else if (event.type == sf::Event::MouseButtonReleased) {
-			if (event.mouseButton.button == sf::Mouse::Left) {
+		} else if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Left) {
+			if (dragging != -1) {
 				dragging = -1;
+				return true;
 			}
 
 		// When the mouse is moved, the point being dragged should follow it
@@ -130,25 +183,58 @@ public:
 					float angle = atan2(points[i - 1].getPosition().y - points[i].getPosition().y, points[i - 1].getPosition().x - points[i].getPosition().x);
 
 					// Move with that angle to the right distance
-					//points[i].setPosition(points[i - 1].getPosition().x - vectorLength * cos(angle), points[i - 1].getPosition().y - vectorLength * sin(angle));
 					points[i].move(deltaX, deltaY);
 
 				}
 
-				// Move all points so that point 0 is at the start position
-				sf::Vector2f deltaToStart = startPosition - points[0].getPosition();
+				// Set all the angles
+				sf::Vector2f prevPos = startPosition;
 				for (int i = 0; i < points.size(); ++i) {
-					points[i].move(deltaToStart.x, deltaToStart.y);
+					angles[i] = M_PI/2.0+atan2(points[i].getPosition().y-prevPos.y, points[i].getPosition().x-prevPos.x);
+					prevPos = points[i].getPosition();
 				}
 
-				// Set all the line positions
-				updateLines();
+				// Something changed so we should update everything
+				return true;
 
 			}
 
         }
 
+		// Otherwise we don't need to update
+		return false;
+
     }
+
+	// Update the chain based on the others
+	void update() {
+
+		// If it's fixed, update the angles
+		if (relation.size() != 0) {
+
+			// For each element in the chain
+			for (int i = 0; i < points.size(); ++i) {
+
+				// Get the sum of the angles from the other chains
+				float angle = 0;
+				for (int j = 0; j < relation.size(); ++j) {
+					angle += relation[j].first * relation[j].second->angles[i];
+				}
+
+				// Set the angle to this point
+				angles[i] = angle;
+
+			}
+
+		}
+
+		// Set all the point and line positions based on the angles
+		updatePointsAndLines();
+
+		// Update the objective
+		updateObjective();
+
+	}
 
 	// Draw the points, lines, circle
     void draw(sf::RenderWindow& window, sf::Font& font) {
@@ -156,9 +242,11 @@ public:
 		for (const auto& line : lines) {
 			window.draw(line);
 		}
-		for (int i = 1; i < points.size(); ++i) {
+		for (int i = 0; i < points.size(); ++i) {
             window.draw(points[i]);
         }
+		text.setFont(font);
+		window.draw(text);
     }
 
 };
@@ -241,11 +329,11 @@ int main(int argc, char* argv[]) {
 			for (int k = 0; k < N[i]; ++k) {
 				for (int l = 0; l < N[j]; ++l) {
 
-					// The location of the chain TODO
+					// The location of the chain
 					int gridY = NSoFarI + k;
 					int gridX = NSoFarJ + l;
-					float currentX = gridX*(2*scaling*sqrt(d));
-					float currentY = gridY*(2*scaling*sqrt(d));
+					float currentX = gridX*(1.5*scaling*sqrt(d));
+					float currentY = gridY*(1.5*scaling*sqrt(d));
 
 					// Only the upper triangle
 					if (gridX <= gridY) {
@@ -258,12 +346,14 @@ int main(int argc, char* argv[]) {
 					maxX = std::max(maxX, currentX);
 					maxY = std::max(maxY, currentY);
 						
-					// Orthogonality
+					// Orthogonality TODO putting first causes issues
 					if (i == j) {
+						//chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}));
 						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}));
 
 					// Mutually unbiasedness
 					} else {
+						//chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}));
 						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}));
 					}
 
@@ -278,20 +368,18 @@ int main(int argc, char* argv[]) {
 
 	// Add the linear constraints
 	for (int i = 0; i < chains.size(); ++i) {
-		std::pair<int,int> vecIndicies1 = chains[i].getVecIndicies();	
+		std::pair<int,int> vecIndices1 = chains[i].getVecIndices();	
 		for (int j = i+1; j < chains.size(); ++j) {
-			std::pair<int,int> vecIndicies2 = chains[j].getVecIndicies();
+			std::pair<int,int> vecIndices2 = chains[j].getVecIndices();
 
 			// theta_abi + theta_cai = theta_cbi
-			if (vecIndicies1.first == vecIndicies2.second) {
-
-				//std::pair<int,int> lookingFor = std::make_pair(vecIndicies1.second, vecIndicies2.first);
-				std::pair<int,int> lookingFor = std::make_pair(vecIndicies2.first, vecIndicies1.second);
+			if (vecIndices1.first == vecIndices2.second) {
 
 				// Find the other
+				std::pair<int,int> lookingFor = std::make_pair(vecIndices2.first, vecIndices1.second);
 				int otherInd = -1;
 				for (int k = 0; k < chains.size(); ++k) {
-					if (chains[k].getVecIndicies() == lookingFor) {
+					if (chains[k].getVecIndices() == lookingFor) {
 						otherInd = k;
 						break;
 					}
@@ -299,7 +387,6 @@ int main(int argc, char* argv[]) {
 
 				// Add to the matrix
 				if (otherInd >= 0) {
-					std::cout << "chain " << i << " and chain " << j << " are connected to chain " << otherInd << std::endl;
 					A(nextInd, i) = 1;
 					A(nextInd, j) = 1;
 					A(nextInd, otherInd) = -1;
@@ -313,6 +400,8 @@ int main(int argc, char* argv[]) {
 
 	// Remove the zero rows
 	A.conservativeResize(nextInd, Eigen::NoChange);
+
+	std::cout << A << std::endl;
 
 	// Flip the matrix horizontally
 	A = A.rowwise().reverse().eval();
@@ -337,55 +426,22 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// For each row of the reduced matrix, get the first one TODO
-	std::unordered_map<int, std::vector<std::pair<double, int>>> relations;
+	// For each row of the reduced matrix, get the first one
 	for (int i = 0; i < reducedA.rows(); ++i) {
 		for (int j = 0; j < reducedA.cols(); ++j) {
 			if (reducedA(i,j) != 0) {
-				std::vector<std::pair<double, int>> terms;
-				std::cout << "chain " << j << " is defined by chains ";
+				std::vector<std::pair<double, Chain*>> terms;
+				std::cout << j << " ";
 				for (int k = j+1; k < reducedA.cols(); ++k) {
 					if (std::abs(reducedA(i,k)) > 1e-10) {
-						terms.push_back(std::make_pair(reducedA(i,k), k));
-						std::cout << reducedA(i,k) << " * " << k << " + ";
+						terms.push_back(std::make_pair(reducedA(i,k), &chains[k]));
+						std::cout << k << " ";
 					}
 				}
 				std::cout << std::endl;
+				chains[j].setRelation(terms);
 				break;
 			}
-		}
-	}
-
-	// Add column / row labels
-	std::vector<sf::Text> labels;
-	for (int i = 1; i < N.size(); ++i) {
-		for (int j = 0; j < N[i]; ++j) {
-
-			// The location of the chain
-			int gridX = -1;
-			int gridY = (i-1)*(N.size()-1) + j;
-			float currentX = gridX*(2*scaling*sqrt(d));
-			float currentY = gridY*(2*scaling*sqrt(d));
-			std::string name = std::to_string(i) + " " + std::to_string(j);
-
-			// Add the label to the row
-			sf::Text label;
-			label.setFont(font);
-			label.setString(name);
-			label.setCharacterSize(20);
-			label.setFillColor(sf::Color::Black);
-			label.setOrigin(label.getLocalBounds().width/2.0, label.getLocalBounds().height/2.0);
-			label.setPosition(currentX, currentY);
-			labels.push_back(label);
-
-			// Add the label to the column
-			gridX = (i-1)*(N.size()-1) + j;
-			gridY = -1;
-			currentX = gridX*(2*scaling*sqrt(d));
-			currentY = gridY*(2*scaling*sqrt(d));
-			label.setPosition(currentX, currentY);
-			labels.push_back(label);
-
 		}
 	}
 
@@ -405,11 +461,13 @@ int main(int argc, char* argv[]) {
 
 		// Process events
         sf::Event event;
+		bool somethingChanged = false;
         while (window.pollEvent(event)) {
 
 			// Each chain should process events first
             for (auto& chain : chains) {
-				chain.handleEvent(event, window);
+				bool val = chain.handleEvent(event, window);
+				somethingChanged = somethingChanged || val;
 			}
 
 			// When the window is closed, the program ends
@@ -464,13 +522,17 @@ int main(int argc, char* argv[]) {
             
         }
 
+		// Apply the linear constraints to each chain
+		if (somethingChanged) {
+			for (int i = 0; i < chains.size(); ++i) {
+				chains[i].update();
+			}
+		}
+
 		// Clear the window, white background
         window.clear(sf::Color::White);
 		for (auto& chain : chains) {
 			chain.draw(window, font);
-		}
-		for (auto& label : labels) {
-			window.draw(label);
 		}
         window.display();
 
