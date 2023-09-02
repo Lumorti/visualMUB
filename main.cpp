@@ -12,6 +12,7 @@ private:
     int dragging = -1;
 	int pointSize = 5;
 	int lineThickness = 5;
+	double radius = 0;
 	sf::Vector2f startPosition;
 	sf::CircleShape radiusCircle;
 	int vectorLength;
@@ -47,6 +48,79 @@ public:
 	// Set how this chain is defined related to the others
 	void setRelation(std::vector<std::pair<double, Chain*>> relation_) {
 		relation = relation_;
+
+		// Also change the colour to make it more obvious
+		for (int i = 0; i < points.size(); ++i) {
+			points[i].setFillColor(sf::Color::Red);
+		}
+
+	}
+
+	// Snap the end point to the radius TODO
+	void snap() {
+
+		// How close the last point is versus the circle radius
+		double finalX = 0;
+		double finalY = 0;
+		for (int i = 0; i < angles.size()-1; ++i) {
+			finalX += vectorLength * sin(angles[i]);
+			finalY -= vectorLength * cos(angles[i]);
+		}
+		double finalDist = sqrt(finalX * finalX + finalY * finalY) - radius;
+
+		// If the final distance is less than the radius, snap it
+		if (std::abs(finalDist) < vectorLength) {
+
+			// Spin around until we change sign
+			int numChecks = 20;
+			double minAngle = 0;
+			double maxAngle = 2.0 * M_PI;
+
+			// Keep repeating (each repeat is an order of mag, more or less)
+			for (int j=0; j<5; j++) {
+
+				// Search for a sign change in the distance verus the radius
+				std::vector<std::pair<double,double>> newAngleRanges;
+				double prevAngle = maxAngle;
+				double prevDist = sqrt(std::pow(finalX + vectorLength * sin(maxAngle), 2) + std::pow(finalY - vectorLength * cos(maxAngle), 2)) - radius;
+				for (int i=0; i<numChecks; i++) {
+					double testAngle = minAngle + double(i) * (maxAngle-minAngle) / double(numChecks-1);
+					double testDist = sqrt(std::pow(finalX + vectorLength * sin(testAngle), 2) + std::pow(finalY - vectorLength * cos(testAngle), 2)) - radius;
+					if (testDist*prevDist < 0 && (i > 0 || j == 0)) {
+						newAngleRanges.push_back(std::make_pair(std::min(prevAngle, testAngle), std::max(prevAngle, testAngle)));
+					}
+					prevDist = testDist;
+					prevAngle = testAngle;
+				}
+
+				// Check which of the angle ranges is closest to the current angle
+				double bestAngleDistance = 1000000;
+				int bestRange = -1;
+				for (int i=0; i<newAngleRanges.size(); i++) {
+					double averageAngle = (newAngleRanges[i].first + newAngleRanges[i].second) / 2.0;
+					double angleDiff = angles[angles.size()-1] - averageAngle;
+					double angleDistance = std::min(std::abs(angleDiff), 2.0 * M_PI - std::abs(angleDiff));
+					if (angleDistance < bestAngleDistance) {
+						bestAngleDistance = angleDistance;
+						bestRange = i;
+					}
+				}
+
+				// Update the ranges
+				std::cout << "Best range: " << newAngleRanges[bestRange].first << " " << newAngleRanges[bestRange].second << std::endl;
+				minAngle = newAngleRanges[bestRange].first;
+				maxAngle = newAngleRanges[bestRange].second;
+
+			}
+
+			// Set the angle to the average of the range
+			angles[angles.size()-1] = (minAngle + maxAngle) / 2.0;
+
+			// Update everything
+			update();
+
+		}
+
 	}
 
 	// Getter
@@ -68,8 +142,14 @@ public:
 	void updateObjective() {
 
 		// How close the last point is versus the circle radius
-		double dist = sqrt(pow(points[points.size()-1].getPosition().x - startPosition.x, 2) + pow(points[points.size()-1].getPosition().y - startPosition.y, 2));
-		objective = abs(dist - radiusCircle.getRadius());
+		double finalX = 0;
+		double finalY = 0;
+		for (int i = 0; i < angles.size(); ++i) {
+			finalX += vectorLength * sin(angles[i]);
+			finalY -= vectorLength * cos(angles[i]);
+		}
+		double finalDist = sqrt(finalX * finalX + finalY * finalY);
+		objective = abs(finalDist - radius);
 
 		// Set the label text
 		text.setString(std::to_string(objective));
@@ -84,6 +164,7 @@ public:
 		vectorLength = vectorLength_;
 		startPosition = startPosition_;
 		vecIndices = vecIndices_;
+		radius = circleRadius_;
 
 		// For each vector
         for (int i = 0; i < numVectors; ++i) {
@@ -104,8 +185,8 @@ public:
         }
 
 		// Create the radius circle
-		radiusCircle.setRadius(circleRadius_);
-		radiusCircle.setOrigin(circleRadius_, circleRadius_);
+		radiusCircle.setRadius(radius);
+		radiusCircle.setOrigin(radius, radius);
 		radiusCircle.setPosition(startPosition.x+pointSize, startPosition.y+pointSize);
 		radiusCircle.setFillColor(sf::Color::Transparent);
 		radiusCircle.setOutlineColor(sf::Color::Red);
@@ -115,7 +196,7 @@ public:
 		text.setString(std::to_string(objective));
 		text.setCharacterSize(20);
 		text.setFillColor(sf::Color::Black);
-		text.setPosition(startPosition.x, startPosition.y - circleRadius_ - 20);
+		text.setPosition(startPosition.x, startPosition.y - radius - 20);
 
 		// Set all the line positions
 		update();
@@ -146,9 +227,17 @@ public:
 
 		// When the mouse button is released, the point being dragged should stop
 		} else if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Left) {
+
+			// Only update if we were already dragging
 			if (dragging != -1) {
+
+				// Snap to the radius if nearby
+				snap();
+
+				// Stop dragging and update
 				dragging = -1;
 				return true;
+
 			}
 
 		// When the mouse is moved, the point being dragged should follow it
@@ -284,7 +373,7 @@ int main(int argc, char* argv[]) {
 
 		// If asked to display the help
 		} else if (std::string(argv[i]) == "-h") {
-			std::cout << "Usage: " << argv[0] << " [-d <dimension>] [-N <basis sizes>]" << std::endl;
+			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>]" << std::endl;
 			return 0;
 
 		}
@@ -294,8 +383,8 @@ int main(int argc, char* argv[]) {
 	// Create the main window
 	sf::ContextSettings settings;
     settings.antialiasingLevel = 3.0;
-	int windowWidth = 800;
-	int windowHeight = 600;
+	int windowWidth = 1280;
+	int windowHeight = 720;
     sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), "Visual MUBs", sf::Style::Close, settings);
 	window.setFramerateLimit(60);
 
@@ -307,6 +396,7 @@ int main(int argc, char* argv[]) {
 
 	// Create each of the chains representing the MUBs
 	float scaling = 100.0;
+	float spacing = scaling * 3.0;
 	int gridX = 0;
 	int gridY = 0;
 	float minX = 0;
@@ -332,8 +422,8 @@ int main(int argc, char* argv[]) {
 					// The location of the chain
 					int gridY = NSoFarI + k;
 					int gridX = NSoFarJ + l;
-					float currentX = gridX*(1.5*scaling*sqrt(d));
-					float currentY = gridY*(1.5*scaling*sqrt(d));
+					float currentX = gridX*spacing;
+					float currentY = gridY*spacing;
 
 					// Only the upper triangle
 					if (gridX <= gridY) {
