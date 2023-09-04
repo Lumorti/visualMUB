@@ -68,77 +68,43 @@ public:
 
 	}
 
+	// Get the angle to the edge of the circle
+	double getAngleToEdge() {
+		double finalX = 0;
+		double finalY = 0;
+		for (int i = 0; i < angles.size(); ++i) {
+			finalX += vectorLength * sin(angles[i]);
+			finalY -= vectorLength * cos(angles[i]);
+		}
+		return atan2(finalY, finalX);
+	}
+
 	// Snap the end point to the radius
 	void snap() {
 
-		// How close the last point is versus the circle radius
-		double finalXMinus2 = 0;
-		double finalYMinus2 = 0;
-		for (int i = 0; i < angles.size()-2; ++i) {
-			finalXMinus2 += vectorLength * sin(angles[i]);
-			finalYMinus2 -= vectorLength * cos(angles[i]);
-		}
-		double finalXAll = finalXMinus2 + vectorLength * sin(angles[angles.size()-2]) + vectorLength * sin(angles[angles.size()-1]);
-		double finalYAll = finalYMinus2 - vectorLength * cos(angles[angles.size()-2]) - vectorLength * cos(angles[angles.size()-1]);
-		double finalDistMinus2 = sqrt(finalXMinus2 * finalXMinus2 + finalYMinus2 * finalYMinus2)- radius;
-		double finalDist = sqrt(finalXAll * finalXAll + finalYAll * finalYAll) - radius;
-		double finalAngle = atan2(finalYAll, finalXAll);
+		// Repeat a few times for better accuracy
+		for (int i=0; i<10; i++) {
 
-		// Move this amount
-		move({-finalDist * cos(finalAngle), -finalDist * sin(finalAngle)});
-		return;
-
-		// If the final distance is less than the radius, snap it
-		if (std::abs(finalDist) < vectorLength / 2.0) {
-
-			// Get the angle between the last two points
-			double angle1OG = angles[angles.size()-1];
-			double angle2OG = angles[angles.size()-2];
-			double angleDiff = angle1OG - angle2OG;
-			while (angleDiff < -M_PI) {
-				angleDiff += 2*M_PI;
+			// How close the last point is versus the circle radius
+			double finalX = 0;
+			double finalY = 0;
+			for (int i = 0; i < angles.size(); ++i) {
+				finalX += vectorLength * sin(angles[i]);
+				finalY -= vectorLength * cos(angles[i]);
 			}
-			while (angleDiff > M_PI) {
-				angleDiff -= 2*M_PI;
-			}
-			
-			// Do a binary search to find the correct angle
-			double lowerBound = -M_PI / 4.0;
-			double upperBound = M_PI / 4.0;
-			for (int j=0; j<30; j++) {
+			double finalDist = radius - sqrt(finalX * finalX + finalY * finalY);
+			double finalAngle = atan2(finalY, finalX);
 
-				// Try the mid point
-				double testPoint = (lowerBound + upperBound) / 2.0;
+			// If the final distance is less than the radius, snap it
+			if (std::abs(finalDist) < vectorLength / 2.0) {
 
-				// Bend in the correct way
-				if (angleDiff > 0) {
-					angles[angles.size()-1] = angle1OG - testPoint;
-					angles[angles.size()-2] = angle2OG + testPoint;
-				} else {
-					angles[angles.size()-1] = angle1OG + testPoint;
-					angles[angles.size()-2] = angle2OG - testPoint;
-				}
+				// Move the last point this amount
+				move({finalDist * cos(finalAngle), finalDist * sin(finalAngle)});
 
-				// Get the new distance
-				double newX = finalXMinus2;
-				double newY = finalYMinus2;
-				for (int i = angles.size()-2; i < angles.size(); ++i) {
-					newX += vectorLength * sin(angles[i]);
-					newY -= vectorLength * cos(angles[i]);
-				}
-				double newDist = sqrt(newX * newX + newY * newY) - radius;
-
-				// Set the bounds
-				if (newDist > 0) {
-					upperBound = testPoint;
-				} else {
-					lowerBound = testPoint;
-				}
+				// Update everything
+				update();
 
 			}
-
-			// Update everything
-			update();
 
 		}
 
@@ -592,7 +558,7 @@ int main(int argc, char* argv[]) {
 	double prevObjective = 100000000.0;
 
 	// Set the initial view so we can see everything
-	currentView.setCenter((minX+maxX+windowWidth+scaling)/2.0, (minY+maxY+windowHeight+scaling)/2.0);
+	currentView.setCenter((minX+maxX+scaling)/2.0, (minY+maxY+scaling)/2.0);
 	window.setView(currentView);
 
 	// Start the main loop
@@ -661,39 +627,56 @@ int main(int argc, char* argv[]) {
             
         }
 
-		// If told to anneal TODO
+		// If told to anneal TODO try doing small groups at a time
 		if (anneal && currentTemp > 0.0) {
 
 			// Pick a random chain that is not fixed
-			int chainIndex = rand() % chains.size();
-			while (chains[chainIndex].isFixed()) {
-				chainIndex = rand() % chains.size();
+			//int chainIndex = rand() % chains.size();
+			//while (chains[chainIndex].isFixed()) {
+				//chainIndex = rand() % chains.size();
+			//}
+
+			// For each chain
+			std::vector<std::pair<double, double>> movements;
+			for (int i = 0; i < chains.size(); ++i) {
+
+				// Pick a random distance proportional to the temperature
+				double distance = 10 * (currentTemp / startTemp) * (rand() / (double)RAND_MAX);
+				double angle = 2.0 * M_PI * (rand() / (double)RAND_MAX);
+				std::pair<double, double> movement = {distance * cos(angle), distance * sin(angle)};
+				movements.push_back(movement);
+				chains[i].move(movement);
+
 			}
-
-			// Pick a random distance proportional to the temperature
-			double distance = currentTemp * (rand() / (double)RAND_MAX);
-			double angle = 2.0 * M_PI * (rand() / (double)RAND_MAX);
-
-			// Move the chain that amount
-			std::pair<double, double> movement = {distance * cos(angle), distance * sin(angle)};
-			chains[chainIndex].move(movement);
 
 			// See if the overall objective function is better
 			double overallObjective = 0.0;
 			for (auto& chain : chains) {
 				chain.update();
+			}
+			for (auto& chain : chains) {
 				overallObjective += std::pow(chain.getObjective(), 2);
 			}
 
 			// Accept with Boltzmann probability
-			if (overallObjective < prevObjective || (rand() / (double)RAND_MAX) < std::exp((prevObjective - overallObjective) / currentTemp)) {
+			double randVal = rand() / (double)RAND_MAX;
+			double prob = std::exp((prevObjective - overallObjective) / currentTemp);
+			if (randVal < prob) {
 				prevObjective = overallObjective;
 			} else {
-				chains[chainIndex].move({-movement.first, -movement.second});
+				for (int chainIndex = 0; chainIndex < chains.size(); ++chainIndex) {
+					chains[chainIndex].move({-movements[chainIndex].first, -movements[chainIndex].second});
+				}
 			}
 
 			// Lower the temperature
 			currentTemp -= deltaTemp;
+
+			if (currentTemp <= 0.0) {
+				for (auto& chain : chains) {
+					chain.snap();
+				}
+			}
 
 			std::cout << overallObjective << " " << currentTemp << std::endl;
 
