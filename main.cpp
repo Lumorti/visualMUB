@@ -6,41 +6,53 @@
 
 class Chain {
 private:
-    std::vector<sf::CircleShape> points;
-    std::vector<sf::RectangleShape> lines;
+
+	// Things needed regarding of visualisation
 	int numVectors = 0;
     int dragging = -1;
-	int pointSize = 5;
-	int lineThickness = 5;
 	double radius = 0;
-	sf::Vector2f startPosition;
-	sf::CircleShape radiusCircle;
 	int vectorLength;
+	double objective = 0.0;
+	bool fixFirst = true;
 	std::vector<double> angles;
+	std::vector<std::pair<double,double>> positions;
+	std::pair<double,double> startPosition;
 	std::pair<int,int> vecIndices;
 	std::vector<std::pair<double, Chain*>> relation;
-	double objective = 0.0;
+
+	// Things only relevant for visualisation
+	int lineThickness = 5;
+    std::vector<sf::CircleShape> points;
+    std::vector<sf::RectangleShape> lines;
+	sf::CircleShape radiusCircle;
 	sf::Text text;
+	int pointSize = 5;
 
 public:
+
+	// Getter for the objective
+	double getObjective() {
+		return objective;
+	}
 
 	// Update the points and lines based on the angles
 	void updatePointsAndLines() {
 
 		// Update the points based on the angles
-		sf::Vector2f prevPos = startPosition;
+		std::pair<double,double> prevPos = startPosition;
 		for (int i = 0; i < points.size(); ++i) {
-			points[i].setPosition(prevPos.x + vectorLength * sin(angles[i]), prevPos.y - vectorLength * cos(angles[i]));
-			prevPos = points[i].getPosition();
+			positions[i] = {prevPos.first + vectorLength * sin(angles[i]), prevPos.second - vectorLength * cos(angles[i])};
+			points[i].setPosition(positions[i].first, positions[i].second);
+			prevPos = positions[i];
 		}
 
 		// Update the lines based on the points
 		prevPos = startPosition;
 		for (int i = 0; i < lines.size(); ++i) {
-			float angle = atan2(points[i].getPosition().y - prevPos.y, points[i].getPosition().x - prevPos.x);
-			lines[i].setPosition(prevPos.x + pointSize, prevPos.y + pointSize);
+			double angle = atan2(positions[i].second - prevPos.second, positions[i].first - prevPos.first);
+			lines[i].setPosition(prevPos.first, prevPos.second);
 			lines[i].setRotation(angle * 180.0 / M_PI);
-			prevPos = points[i].getPosition();
+			prevPos = positions[i];
 		}
 
 	}
@@ -56,65 +68,74 @@ public:
 
 	}
 
-	// Snap the end point to the radius TODO
+	// Snap the end point to the radius
 	void snap() {
 
 		// How close the last point is versus the circle radius
-		double finalX = 0;
-		double finalY = 0;
-		for (int i = 0; i < angles.size()-1; ++i) {
-			finalX += vectorLength * sin(angles[i]);
-			finalY -= vectorLength * cos(angles[i]);
+		double finalXMinus2 = 0;
+		double finalYMinus2 = 0;
+		for (int i = 0; i < angles.size()-2; ++i) {
+			finalXMinus2 += vectorLength * sin(angles[i]);
+			finalYMinus2 -= vectorLength * cos(angles[i]);
 		}
-		double finalDist = sqrt(finalX * finalX + finalY * finalY) - radius;
+		double finalXAll = finalXMinus2 + vectorLength * sin(angles[angles.size()-2]) + vectorLength * sin(angles[angles.size()-1]);
+		double finalYAll = finalYMinus2 - vectorLength * cos(angles[angles.size()-2]) - vectorLength * cos(angles[angles.size()-1]);
+		double finalDistMinus2 = sqrt(finalXMinus2 * finalXMinus2 + finalYMinus2 * finalYMinus2)- radius;
+		double finalDist = sqrt(finalXAll * finalXAll + finalYAll * finalYAll) - radius;
+		double finalAngle = atan2(finalYAll, finalXAll);
+
+		// Move this amount
+		move({-finalDist * cos(finalAngle), -finalDist * sin(finalAngle)});
+		return;
 
 		// If the final distance is less than the radius, snap it
-		if (std::abs(finalDist) < vectorLength) {
+		if (std::abs(finalDist) < vectorLength / 2.0) {
 
-			// Spin around until we change sign
-			int numChecks = 20;
-			double minAngle = 0;
-			double maxAngle = 2.0 * M_PI;
+			// Get the angle between the last two points
+			double angle1OG = angles[angles.size()-1];
+			double angle2OG = angles[angles.size()-2];
+			double angleDiff = angle1OG - angle2OG;
+			while (angleDiff < -M_PI) {
+				angleDiff += 2*M_PI;
+			}
+			while (angleDiff > M_PI) {
+				angleDiff -= 2*M_PI;
+			}
+			
+			// Do a binary search to find the correct angle
+			double lowerBound = -M_PI / 4.0;
+			double upperBound = M_PI / 4.0;
+			for (int j=0; j<30; j++) {
 
-			// Keep repeating (each repeat is an order of mag, more or less)
-			for (int j=0; j<5; j++) {
+				// Try the mid point
+				double testPoint = (lowerBound + upperBound) / 2.0;
 
-				// Search for a sign change in the distance verus the radius
-				std::vector<std::pair<double,double>> newAngleRanges;
-				double prevAngle = maxAngle;
-				double prevDist = sqrt(std::pow(finalX + vectorLength * sin(maxAngle), 2) + std::pow(finalY - vectorLength * cos(maxAngle), 2)) - radius;
-				for (int i=0; i<numChecks; i++) {
-					double testAngle = minAngle + double(i) * (maxAngle-minAngle) / double(numChecks-1);
-					double testDist = sqrt(std::pow(finalX + vectorLength * sin(testAngle), 2) + std::pow(finalY - vectorLength * cos(testAngle), 2)) - radius;
-					if (testDist*prevDist < 0 && (i > 0 || j == 0)) {
-						newAngleRanges.push_back(std::make_pair(std::min(prevAngle, testAngle), std::max(prevAngle, testAngle)));
-					}
-					prevDist = testDist;
-					prevAngle = testAngle;
+				// Bend in the correct way
+				if (angleDiff > 0) {
+					angles[angles.size()-1] = angle1OG - testPoint;
+					angles[angles.size()-2] = angle2OG + testPoint;
+				} else {
+					angles[angles.size()-1] = angle1OG + testPoint;
+					angles[angles.size()-2] = angle2OG - testPoint;
 				}
 
-				// Check which of the angle ranges is closest to the current angle
-				double bestAngleDistance = 1000000;
-				int bestRange = -1;
-				for (int i=0; i<newAngleRanges.size(); i++) {
-					double averageAngle = (newAngleRanges[i].first + newAngleRanges[i].second) / 2.0;
-					double angleDiff = angles[angles.size()-1] - averageAngle;
-					double angleDistance = std::min(std::abs(angleDiff), 2.0 * M_PI - std::abs(angleDiff));
-					if (angleDistance < bestAngleDistance) {
-						bestAngleDistance = angleDistance;
-						bestRange = i;
-					}
+				// Get the new distance
+				double newX = finalXMinus2;
+				double newY = finalYMinus2;
+				for (int i = angles.size()-2; i < angles.size(); ++i) {
+					newX += vectorLength * sin(angles[i]);
+					newY -= vectorLength * cos(angles[i]);
 				}
+				double newDist = sqrt(newX * newX + newY * newY) - radius;
 
-				// Update the ranges
-				std::cout << "Best range: " << newAngleRanges[bestRange].first << " " << newAngleRanges[bestRange].second << std::endl;
-				minAngle = newAngleRanges[bestRange].first;
-				maxAngle = newAngleRanges[bestRange].second;
+				// Set the bounds
+				if (newDist > 0) {
+					upperBound = testPoint;
+				} else {
+					lowerBound = testPoint;
+				}
 
 			}
-
-			// Set the angle to the average of the range
-			angles[angles.size()-1] = (minAngle + maxAngle) / 2.0;
 
 			// Update everything
 			update();
@@ -157,7 +178,7 @@ public:
 	}
 
 	// Main constructor
-    Chain(int numVectors_, sf::Vector2f startPosition_, int vectorLength_, int circleRadius_, std::pair<int,int> vecIndices_) {
+    Chain(int numVectors_, std::pair<double,double> startPosition_, int vectorLength_, int circleRadius_, std::pair<int,int> vecIndices_, bool fixFirst_) {
 
 		// Set the size of the points
 		numVectors = numVectors_;
@@ -165,6 +186,7 @@ public:
 		startPosition = startPosition_;
 		vecIndices = vecIndices_;
 		radius = circleRadius_;
+		fixFirst = fixFirst_;
 
 		// For each vector
         for (int i = 0; i < numVectors; ++i) {
@@ -172,14 +194,17 @@ public:
 			// Create the point
             sf::CircleShape point(pointSize);
             point.setFillColor(sf::Color::Blue);
+			point.setOrigin(pointSize, pointSize);
             points.push_back(point);
 
-			// Create the angle
+			// Create the angles and positions to be set later
 			angles.push_back(0);
+			positions.push_back(std::pair<double,double>(0,0));
 
 			// Create the line
 			sf::RectangleShape line(sf::Vector2f(vectorLength, lineThickness));
 			line.setFillColor(sf::Color::Black);
+			line.setOrigin(0, lineThickness / 2.0);
 			lines.push_back(line);
 
         }
@@ -187,7 +212,7 @@ public:
 		// Create the radius circle
 		radiusCircle.setRadius(radius);
 		radiusCircle.setOrigin(radius, radius);
-		radiusCircle.setPosition(startPosition.x+pointSize, startPosition.y+pointSize);
+		radiusCircle.setPosition(startPosition.first, startPosition.second);
 		radiusCircle.setFillColor(sf::Color::Transparent);
 		radiusCircle.setOutlineColor(sf::Color::Red);
 		radiusCircle.setOutlineThickness(lineThickness);
@@ -196,12 +221,53 @@ public:
 		text.setString(std::to_string(objective));
 		text.setCharacterSize(20);
 		text.setFillColor(sf::Color::Black);
-		text.setPosition(startPosition.x, startPosition.y - radius - 20);
+		text.setPosition(startPosition.first, startPosition.second - radius - 20);
 
 		// Set all the line positions
 		update();
 
     }
+
+	// Given a delta vector, move a given point
+	void move(std::pair<double,double> delta, int toDrag=-1) {
+
+		// If told to drag the last point
+		if (toDrag == -1) {
+			toDrag = points.size() - 1;
+		}
+
+		// The points after the dragged point
+		for (int i=toDrag; i<points.size(); ++i) {
+
+			// Simple move with the point
+			positions[i] = std::pair<double,double>(positions[i].first + delta.first, positions[i].second + delta.second);
+
+		}
+
+		// The points before the dragged point
+		for (int i=toDrag-1; i>=0; --i) {
+
+			// Get the angle between this point at the one after it
+			double angles = atan2(positions[i + 1].second - positions[i].second, positions[i + 1].first - positions[i].first);
+			
+			// Move with that angle to the right distance
+			positions[i] = std::pair<double,double>(positions[i + 1].first - vectorLength * cos(angles), positions[i + 1].second - vectorLength * sin(angles));
+
+		}
+
+		// Set all the angles
+		std::pair<double,double> prevPos = startPosition;
+		for (int i=0; i<points.size(); ++i) {
+			angles[i] = M_PI/2.0 + atan2(positions[i].second - prevPos.second, positions[i].first - prevPos.first);
+			prevPos = positions[i];
+		}
+
+		// Fix the first angle
+		if (fixFirst) {
+			angles[0] = 0;
+		}
+
+	}
 
 	// When an event happens, the chain should handle it
     bool handleEvent(const sf::Event& event, sf::RenderWindow& window) {
@@ -250,38 +316,8 @@ public:
 				sf::Vector2f mousePosition = window.mapPixelToCoords(sf::Vector2i(event.mouseMove.x, event.mouseMove.y));
 
 				// Move that point to the mouse, talking into account the size
-				float deltaX = mousePosition.x - points[dragging].getPosition().x - pointSize;
-				float deltaY = mousePosition.y - points[dragging].getPosition().y - pointSize;
-				points[dragging].move(deltaX, deltaY);
-
-				// The points before the dragged point
-				for (int i = dragging - 1; i >= 0; --i) {
-
-					// Get the angle between this point at the one after it
-					float angle = atan2(points[i + 1].getPosition().y - points[i].getPosition().y, points[i + 1].getPosition().x - points[i].getPosition().x);
-					
-					// Move with that angle to the right distance
-					points[i].setPosition(points[i + 1].getPosition().x - vectorLength * cos(angle), points[i + 1].getPosition().y - vectorLength * sin(angle));
-
-				}
-
-				// The points after the dragged point
-				for (int i = dragging + 1; i < points.size(); ++i) {
-
-					// Get the angle between this point at the one before it
-					float angle = atan2(points[i - 1].getPosition().y - points[i].getPosition().y, points[i - 1].getPosition().x - points[i].getPosition().x);
-
-					// Move with that angle to the right distance
-					points[i].move(deltaX, deltaY);
-
-				}
-
-				// Set all the angles
-				sf::Vector2f prevPos = startPosition;
-				for (int i = 0; i < points.size(); ++i) {
-					angles[i] = M_PI/2.0+atan2(points[i].getPosition().y-prevPos.y, points[i].getPosition().x-prevPos.x);
-					prevPos = points[i].getPosition();
-				}
+				std::pair<double,double> delta = {mousePosition.x - positions[dragging].first, mousePosition.y - positions[dragging].second};
+				move(delta, dragging);
 
 				// Something changed so we should update everything
 				return true;
@@ -305,7 +341,7 @@ public:
 			for (int i = 0; i < points.size(); ++i) {
 
 				// Get the sum of the angles from the other chains
-				float angle = 0;
+				double angle = 0;
 				for (int j = 0; j < relation.size(); ++j) {
 					angle += relation[j].first * relation[j].second->angles[i];
 				}
@@ -346,6 +382,10 @@ int main(int argc, char* argv[]) {
 	// Settings
 	int d = 3;
 	std::vector<int> N = {d, 1, 1, 1};
+	bool fixFirst = true;
+	bool anneal = false;
+	double startTemp = 1.0;
+	int steps = 1000;
 
 	// Parse the command line arguments
 	std::string arg = "";
@@ -373,8 +413,18 @@ int main(int argc, char* argv[]) {
 
 		// If asked to display the help
 		} else if (std::string(argv[i]) == "-h") {
-			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>]" << std::endl;
+			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>] [-a <temp> <steps>] [-1]" << std::endl;
 			return 0;
+
+		// If told not to fix the first angle
+		} else if (std::string(argv[i]) == "-1") {
+			fixFirst = false;
+
+		// If told to anneal
+		} else if (std::string(argv[i]) == "-a") {
+			anneal = true;
+			startTemp = std::stof(argv[i + 1]);
+			steps = std::stoi(argv[i + 2]);
 
 		}
 
@@ -385,7 +435,7 @@ int main(int argc, char* argv[]) {
     settings.antialiasingLevel = 3.0;
 	int windowWidth = 1280;
 	int windowHeight = 720;
-    sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), "Visual MUBs", sf::Style::Close, settings);
+    sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), "Visual MUBs", sf::Style::Default, settings);
 	window.setFramerateLimit(60);
 
 	// Load the font
@@ -395,14 +445,14 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Create each of the chains representing the MUBs
-	float scaling = 100.0;
-	float spacing = scaling * 3.0;
+	double scaling = 100.0;
+	double spacing = scaling * 3.0;
 	int gridX = 0;
 	int gridY = 0;
-	float minX = 0;
-	float minY = 0;
-	float maxX = 0;
-	float maxY = 0;
+	double minX = 0;
+	double minY = 0;
+	double maxX = 0;
+	double maxY = 0;
 	int NSoFarI = 0;
 	int NSoFarJ = 0;
 	std::vector<Chain> chains;
@@ -422,8 +472,8 @@ int main(int argc, char* argv[]) {
 					// The location of the chain
 					int gridY = NSoFarI + k;
 					int gridX = NSoFarJ + l;
-					float currentX = gridX*spacing;
-					float currentY = gridY*spacing;
+					double currentX = gridX*spacing;
+					double currentY = gridY*spacing;
 
 					// Only the upper triangle
 					if (gridX <= gridY) {
@@ -436,15 +486,13 @@ int main(int argc, char* argv[]) {
 					maxX = std::max(maxX, currentX);
 					maxY = std::max(maxY, currentY);
 						
-					// Orthogonality TODO putting first causes issues
+					// Orthogonality
 					if (i == j) {
-						//chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}));
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}));
+						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}, fixFirst));
 
 					// Mutually unbiasedness
 					} else {
-						//chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}));
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}));
+						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}, fixFirst));
 					}
 
 				}
@@ -490,8 +538,6 @@ int main(int argc, char* argv[]) {
 
 	// Remove the zero rows
 	A.conservativeResize(nextInd, Eigen::NoChange);
-
-	std::cout << A << std::endl;
 
 	// Flip the matrix horizontally
 	A = A.rowwise().reverse().eval();
@@ -540,7 +586,10 @@ int main(int argc, char* argv[]) {
 	sf::Vector2i lastMousePos;
 	sf::View currentView = window.getView();
 	sf::Vector2f lastViewPos;
-	float zoomLevel = 1.0;
+	double zoomLevel = 1.0;
+	double currentTemp = startTemp;
+	double deltaTemp = startTemp / steps;
+	double prevObjective = 100000000.0;
 
 	// Set the initial view so we can see everything
 	currentView.setCenter((minX+maxX+windowWidth+scaling)/2.0, (minY+maxY+windowHeight+scaling)/2.0);
@@ -612,8 +661,44 @@ int main(int argc, char* argv[]) {
             
         }
 
+		// If told to anneal TODO
+		if (anneal && currentTemp > 0.0) {
+
+			// Pick a random chain that is not fixed
+			int chainIndex = rand() % chains.size();
+			while (chains[chainIndex].isFixed()) {
+				chainIndex = rand() % chains.size();
+			}
+
+			// Pick a random distance proportional to the temperature
+			double distance = currentTemp * (rand() / (double)RAND_MAX);
+			double angle = 2.0 * M_PI * (rand() / (double)RAND_MAX);
+
+			// Move the chain that amount
+			std::pair<double, double> movement = {distance * cos(angle), distance * sin(angle)};
+			chains[chainIndex].move(movement);
+
+			// See if the overall objective function is better
+			double overallObjective = 0.0;
+			for (auto& chain : chains) {
+				chain.update();
+				overallObjective += std::pow(chain.getObjective(), 2);
+			}
+
+			// Accept with Boltzmann probability
+			if (overallObjective < prevObjective || (rand() / (double)RAND_MAX) < std::exp((prevObjective - overallObjective) / currentTemp)) {
+				prevObjective = overallObjective;
+			} else {
+				chains[chainIndex].move({-movement.first, -movement.second});
+			}
+
+			// Lower the temperature
+			currentTemp -= deltaTemp;
+
+			std::cout << overallObjective << " " << currentTemp << std::endl;
+
 		// Apply the linear constraints to each chain
-		if (somethingChanged) {
+		} else if (somethingChanged) {
 			for (int i = 0; i < chains.size(); ++i) {
 				chains[i].update();
 			}
