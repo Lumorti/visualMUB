@@ -16,6 +16,9 @@ SOURCE = main.cpp
 all:
 	$(CXX) $(CXXFLAGS) $(SOURCE) -o $(OUTPUT) $(LDFLAGS)
 
+depend:
+	sudo apt-get install libsfml-dev libeigen3-dev -y
+
 clean:
 	rm -f $(OUTPUT)
 
