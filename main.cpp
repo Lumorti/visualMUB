@@ -68,6 +68,16 @@ public:
 
 	}
 
+    // Get the list of angles
+    std::vector<double> getAngles() {
+        return angles;
+    }
+
+    // Set the angles
+    void setAngles(std::vector<double> angles_) {
+        angles = angles_;
+    }
+
 	// Get the angle to the edge of the circle
 	double getAngleToEdge() {
 		double finalX = 0;
@@ -627,58 +637,74 @@ int main(int argc, char* argv[]) {
             
         }
 
+        // 6,6,3,1 final max is 19, sqrt is 3322
+        // 6,5,3,1 final max is 9, sqrt is 3322
+
 		// If told to anneal TODO try doing small groups at a time
 		if (anneal && currentTemp > 0.0) {
 
-			// Pick a random chain that is not fixed
-			//int chainIndex = rand() % chains.size();
-			//while (chains[chainIndex].isFixed()) {
-				//chainIndex = rand() % chains.size();
-			//}
+            // Do a bunch of iters at once
+            double overallObjective = 0.0;
+            double averageObjective = 0.0;
+            double maxObjective = 0.0;
+            for (int iter = 0; iter < std::min(1000, steps); ++iter) {
 
-			// For each chain
-			std::vector<std::pair<double, double>> movements;
-			for (int i = 0; i < chains.size(); ++i) {
+                // For each chain
+                std::vector<std::vector<double>> prevAngles(chains.size());
+                for (int i = 0; i < chains.size(); ++i) {
 
-				// Pick a random distance proportional to the temperature
-				double distance = 10 * (currentTemp / startTemp) * (rand() / (double)RAND_MAX);
-				double angle = 2.0 * M_PI * (rand() / (double)RAND_MAX);
-				std::pair<double, double> movement = {distance * cos(angle), distance * sin(angle)};
-				movements.push_back(movement);
-				chains[i].move(movement);
+                    // Wiggle each angle a bit
+                    std::vector<double> angles = chains[i].getAngles();
+                    prevAngles[i] = angles;
+                    if (chains[i].isFixed()) {
+                        continue;
+                    }
+                    for (int j = 0; j < angles.size(); ++j) {
+                        angles[j] += currentTemp * ((rand() / (double)RAND_MAX)-0.5);
+                    }
+                    if (fixFirst) {
+                        angles[0] = 0.0;
+                    }
+                    chains[i].setAngles(angles);
 
-			}
+                }
 
-			// See if the overall objective function is better
-			double overallObjective = 0.0;
-			for (auto& chain : chains) {
-				chain.update();
-			}
-			for (auto& chain : chains) {
-				overallObjective += std::pow(chain.getObjective(), 2);
-			}
+                // See if the overall objective function is better
+                overallObjective = 0.0;
+                maxObjective = 0.0;
+                averageObjective = 0.0;
+                for (auto& chain : chains) {
+                    chain.update();
+                }
+                for (auto& chain : chains) {
+                    overallObjective += std::pow(chain.getObjective(), 2);
+                    maxObjective = std::max(maxObjective, chain.getObjective());
+                    averageObjective += chain.getObjective();
+                }
+                averageObjective /= chains.size();
 
-			// Accept with Boltzmann probability
-			double randVal = rand() / (double)RAND_MAX;
-			double prob = std::exp((prevObjective - overallObjective) / currentTemp);
-			if (randVal < prob) {
-				prevObjective = overallObjective;
-			} else {
-				for (int chainIndex = 0; chainIndex < chains.size(); ++chainIndex) {
-					chains[chainIndex].move({-movements[chainIndex].first, -movements[chainIndex].second});
-				}
-			}
+                // Accept with Boltzmann probability
+                double randVal = rand() / (double)RAND_MAX;
+                double prob = std::exp((prevObjective - overallObjective) / currentTemp);
+                if (randVal < prob) {
+                    prevObjective = overallObjective;
+                } else {
+                    for (int i = 0; i < chains.size(); ++i) {
+                        chains[i].setAngles(prevAngles[i]);
+                    }
+                }
 
-			// Lower the temperature
-			currentTemp -= deltaTemp;
+                // Lower the temperature
+                //currentTemp -= deltaTemp;
+                currentTemp *= 0.99999;
+                if (currentTemp < 1e-6) {
+                    break;
+                }
 
-			if (currentTemp <= 0.0) {
-				for (auto& chain : chains) {
-					chain.snap();
-				}
-			}
+            }
 
-			std::cout << overallObjective << " " << currentTemp << std::endl;
+            // Per iteration output
+			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
 
 		// Apply the linear constraints to each chain
 		} else if (somethingChanged) {
