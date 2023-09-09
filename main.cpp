@@ -68,6 +68,15 @@ public:
 
 	}
 
+    // Get a list of the chains that related to this
+    std::vector<Chain*> getRelatedChains() {
+        std::vector<Chain*> relatedChains;
+        for (int i = 0; i < relation.size(); ++i) {
+            relatedChains.push_back(relation[i].second);
+        }
+        return relatedChains;
+    }
+
     // Get the list of angles
     std::vector<double> getAngles() {
         return angles;
@@ -359,7 +368,7 @@ int main(int argc, char* argv[]) {
 	int d = 3;
 	std::vector<int> N = {d, 1, 1, 1};
 	bool fixFirst = true;
-	bool anneal = false;
+    std::string mode = "none";
 	double startTemp = 1.0;
 	int steps = 1000;
 
@@ -389,16 +398,22 @@ int main(int argc, char* argv[]) {
 
 		// If asked to display the help
 		} else if (std::string(argv[i]) == "-h") {
-			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>] [-a <temp> <steps>] [-1]" << std::endl;
+			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>] [-a/A <temp> <steps>] [-1]" << std::endl;
 			return 0;
 
 		// If told not to fix the first angle
 		} else if (std::string(argv[i]) == "-1") {
 			fixFirst = false;
 
-		// If told to anneal
+		// If told to anneal everything at once
 		} else if (std::string(argv[i]) == "-a") {
-			anneal = true;
+			mode = "annealFull";
+			startTemp = std::stof(argv[i + 1]);
+			steps = std::stoi(argv[i + 2]);
+
+		// If told to anneal everything at once
+		} else if (std::string(argv[i]) == "-A") {
+			mode = "annealPartial";
 			startTemp = std::stof(argv[i + 1]);
 			steps = std::stoi(argv[i + 2]);
 
@@ -566,6 +581,7 @@ int main(int argc, char* argv[]) {
 	double currentTemp = startTemp;
 	double deltaTemp = startTemp / steps;
 	double prevObjective = 100000000.0;
+    int numDone = 0;
 
 	// Set the initial view so we can see everything
 	currentView.setCenter((minX+maxX+scaling)/2.0, (minY+maxY+scaling)/2.0);
@@ -640,8 +656,8 @@ int main(int argc, char* argv[]) {
         // 6,6,3,1 final max is 19, sqrt is 3322
         // 6,5,3,1 final max is 9, sqrt is 3322
 
-		// If told to anneal TODO try doing small groups at a time
-		if (anneal && currentTemp > 0.0) {
+		// If told to anneal
+		if (mode == "anneal" && currentTemp > 0.0) {
 
             // Do a bunch of iters at once
             double overallObjective = 0.0;
@@ -705,6 +721,85 @@ int main(int argc, char* argv[]) {
 
             // Per iteration output
 			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
+
+        // 6,5,3,1 max is 9.7, sqrt is 452
+        
+        // If told to anneal little sections at once TODO
+        } else if (mode == "annealPartial") {
+
+            // Pick a random fixed chain and the related chains
+            int chainIndex = rand() % chains.size();
+            while (!chains[chainIndex].isFixed()) {
+                chainIndex = rand() % chains.size();
+            }
+            std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
+
+            // Pick a random unfixed chain
+            //int chainIndex = rand() % chains.size();
+            //while (chains[chainIndex].isFixed()) {
+                //chainIndex = rand() % chains.size();
+            //}
+            //std::vector<Chain*> relatedChains = {&chains[chainIndex]};
+
+            // Do a bunch of iters
+            double overallObjective = 0.0;
+            double maxObjective = 0.0;
+            double averageObjective = 0.0;
+            currentTemp = startTemp;
+            deltaTemp = std::pow(1e-7 / startTemp, 1.0 / float(steps));
+            for (int iter=0; iter<steps; ++iter) {
+
+                // For each chain
+                std::vector<std::vector<double>> prevAngles(relatedChains.size());
+                for (int i=0; i<relatedChains.size(); ++i) {
+
+                    // Wiggle each angle a bit
+                    std::vector<double> angles = relatedChains[i]->getAngles();
+                    prevAngles[i] = angles;
+                    for (int j=0; j<angles.size(); ++j) {
+                        angles[j] += currentTemp * ((rand() / (double)RAND_MAX)-0.5);
+                    }
+                    if (fixFirst) {
+                        angles[0] = 0.0;
+                    }
+                    relatedChains[i]->setAngles(angles);
+
+                }
+
+                // See if the overall objective function is better
+                overallObjective = 0.0;
+                maxObjective = 0.0;
+                averageObjective = 0.0;
+                for (auto& chain : chains) {
+                    chain.update();
+                }
+                for (auto& chain : chains) {
+                    overallObjective += std::pow(chain.getObjective(), 2);
+                    //overallObjective += std::abs(chain.getObjective());
+                    maxObjective = std::max(maxObjective, chain.getObjective());
+                    averageObjective += chain.getObjective();
+                }
+                averageObjective /= chains.size();
+
+                // Accept with Boltzmann probability
+                double randVal = rand() / (double)RAND_MAX;
+                double prob = std::exp((prevObjective - overallObjective) / currentTemp);
+                if (randVal < prob) {
+                    prevObjective = overallObjective;
+                } else {
+                    for (int i=0; i<relatedChains.size(); ++i) {
+                        relatedChains[i]->setAngles(prevAngles[i]);
+                    }
+                }
+
+                // Lower the temperature
+                //currentTemp -= deltaTemp;
+                currentTemp *= deltaTemp;
+                
+            }
+
+            numDone++;
+            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
 
 		// Apply the linear constraints to each chain
 		} else if (somethingChanged) {
