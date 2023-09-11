@@ -68,6 +68,11 @@ public:
 
 	}
 
+    // Get the radius
+    double getRadius() {
+        return radius;
+    }
+
     // Get a list of the chains that related to this
     std::vector<Chain*> getRelatedChains() {
         std::vector<Chain*> relatedChains;
@@ -371,6 +376,7 @@ int main(int argc, char* argv[]) {
     std::string mode = "none";
 	double startTemp = 1.0;
 	int steps = 1000;
+    bool stopEarly = false;
 
 	// Parse the command line arguments
 	std::string arg = "";
@@ -398,7 +404,7 @@ int main(int argc, char* argv[]) {
 
 		// If asked to display the help
 		} else if (std::string(argv[i]) == "-h") {
-			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>] [-a/A <temp> <steps>] [-1]" << std::endl;
+			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>] [-a/A <temp> <steps>] [-1] [-s]" << std::endl;
 			return 0;
 
 		// If told not to fix the first angle
@@ -416,6 +422,10 @@ int main(int argc, char* argv[]) {
 			mode = "annealPartial";
 			startTemp = std::stof(argv[i + 1]);
 			steps = std::stoi(argv[i + 2]);
+
+        // If told to stop early
+        } else if (std::string(argv[i]) == "-s") {
+            stopEarly = true;
 
 		}
 
@@ -477,13 +487,15 @@ int main(int argc, char* argv[]) {
 					maxX = std::max(maxX, currentX);
 					maxY = std::max(maxY, currentY);
 						
-					// Orthogonality
+					// Orthogonality TODO these first
 					if (i == j) {
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}, fixFirst));
+                        chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}, fixFirst));
+                        //chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}, fixFirst));
 
 					// Mutually unbiasedness
 					} else {
-						chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}, fixFirst));
+                        chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}, fixFirst));
+                        //chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}, fixFirst));
 					}
 
 				}
@@ -553,24 +565,73 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// For each row of the reduced matrix, get the first one
+    // Calculate the maximum number of non-zero elements in any column
+    int maxNonZero = 0;
+    for (int i = 0; i < reducedA.cols(); ++i) {
+        int nonZero = 0;
+        for (int j = 0; j < reducedA.rows(); ++j) {
+            if (reducedA(j,i) != 0) {
+                nonZero++;
+            }
+        }
+        maxNonZero = std::max(maxNonZero, nonZero);
+    }
+
+	// For each row of the reduced matrix, get the first one and set the chains
 	for (int i = 0; i < reducedA.rows(); ++i) {
 		for (int j = 0; j < reducedA.cols(); ++j) {
 			if (reducedA(i,j) != 0) {
 				std::vector<std::pair<double, Chain*>> terms;
-				std::cout << j << " ";
 				for (int k = j+1; k < reducedA.cols(); ++k) {
 					if (std::abs(reducedA(i,k)) > 1e-10) {
 						terms.push_back(std::make_pair(reducedA(i,k), &chains[k]));
-						std::cout << k << " ";
 					}
 				}
-				std::cout << std::endl;
 				chains[j].setRelation(terms);
 				break;
 			}
 		}
 	}
+
+    // Count the number of chains with radius zero
+    int numZero = 0;
+    int numNonZero = 0;
+    int numZeroAndFixed = 0;
+    int numNonZeroAndFixed = 0;
+    for (int i = 0; i < chains.size(); ++i) {
+        if (std::abs(chains[i].getRadius()) < 1e-10) {
+            numZero++;
+            if (chains[i].isFixed()) {
+                numZeroAndFixed++;
+            }
+        } else {
+            numNonZero++;
+            if (chains[i].isFixed()) {
+                numNonZeroAndFixed++;
+            }
+        }
+    }
+
+    // Output problem info TODO patterns
+    //std::cout << reducedA.block(0, rank, rank, reducedA.cols() - rank) << std::endl;
+    Eigen::MatrixXd reducedA2 = reducedA.block(0, rank, rank, reducedA.cols() - rank);
+    //std::cout << reducedA2 << std::endl;
+    for (int i=0; i<reducedA2.rows(); ++i) {
+        std::cout << reducedA2.row(i) << "   =  r(" << chains[i].getRadius() << ")" << std::endl;
+    }
+    std::cout << "max non-zeros: " << maxNonZero << std::endl;
+    std::cout << "we have " << chains.size() << " chains" << std::endl;
+    std::cout << rank << " are fixed" << std::endl;
+    std::cout << chains.size() - rank << " are free" << std::endl;
+    std::cout << numZero << " have radius zero" << std::endl;
+    std::cout << "   " << numZeroAndFixed << " of these are fixed" << std::endl;
+    std::cout << "   " << numZero - numZeroAndFixed << " of these are free" << std::endl;
+    std::cout << chains.size() - numZero << " have radius non-zero" << std::endl;
+    std::cout << "   " << numNonZeroAndFixed << " of these are fixed" << std::endl;
+    std::cout << "   " << numNonZero - numNonZeroAndFixed << " of these are free" << std::endl;
+    if (stopEarly) {
+        return 0;
+    }
 
 	// Vars used for event management
 	bool draggingBackground = false;
@@ -579,7 +640,7 @@ int main(int argc, char* argv[]) {
 	sf::Vector2f lastViewPos;
 	double zoomLevel = 1.0;
 	double currentTemp = startTemp;
-	double deltaTemp = startTemp / steps;
+    double deltaTemp = std::pow(1e-7 / startTemp, 1.0 / float(steps));
 	double prevObjective = 100000000.0;
     int numDone = 0;
 
@@ -657,7 +718,7 @@ int main(int argc, char* argv[]) {
         // 6,5,3,1 final max is 9, sqrt is 3322
 
 		// If told to anneal
-		if (mode == "anneal" && currentTemp > 0.0) {
+		if (mode == "annealFull" && currentTemp > 1e-6) {
 
             // Do a bunch of iters at once
             double overallObjective = 0.0;
@@ -711,8 +772,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Lower the temperature
-                //currentTemp -= deltaTemp;
-                currentTemp *= 0.99999;
+                currentTemp *= deltaTemp;
                 if (currentTemp < 1e-6) {
                     break;
                 }
@@ -727,12 +787,36 @@ int main(int argc, char* argv[]) {
         // If told to anneal little sections at once TODO
         } else if (mode == "annealPartial") {
 
-            // Pick a random fixed chain and the related chains
-            int chainIndex = rand() % chains.size();
-            while (!chains[chainIndex].isFixed()) {
-                chainIndex = rand() % chains.size();
+            // Find the non-fixed chain with the worst objective
+            // ./run 30,10,10,10 -A 1 1000 -i 200 = 4103
+            double worstObjective = -1000.0;
+            int worstChainIndex = -1;
+            for (int i = 0; i < chains.size(); ++i) {
+                if (!chains[i].isFixed()) {
+                    continue;
+                }
+                //if (chains[i].getObjective() >= worstObjective || ((rand() / (double)RAND_MAX) > 0.9) {
+                if (chains[i].getObjective() >= worstObjective) {
+                    worstObjective = chains[i].getObjective();
+                    worstChainIndex = i;
+                }
             }
+            int chainIndex = worstChainIndex;
             std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
+            std::vector<Chain*> otherChains = {};
+            //for (int i = 0; i < chains.size(); ++i) {
+                //if (std::find(relatedChains.begin(), relatedChains.end(), &chains[i]) == relatedChains.end()) {
+                    //otherChains.push_back(&chains[i]);
+                //}
+            //}
+            otherChains.push_back(&chains[chainIndex]);
+
+            // Pick a random fixed chain and the related chains
+            //int chainIndex = rand() % chains.size();
+            //while (!chains[chainIndex].isFixed()) {
+                //chainIndex = rand() % chains.size();
+            //}
+            //std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
 
             // Pick a random unfixed chain
             //int chainIndex = rand() % chains.size();
@@ -746,7 +830,6 @@ int main(int argc, char* argv[]) {
             double maxObjective = 0.0;
             double averageObjective = 0.0;
             currentTemp = startTemp;
-            deltaTemp = std::pow(1e-7 / startTemp, 1.0 / float(steps));
             for (int iter=0; iter<steps; ++iter) {
 
                 // For each chain
@@ -770,6 +853,13 @@ int main(int argc, char* argv[]) {
                 overallObjective = 0.0;
                 maxObjective = 0.0;
                 averageObjective = 0.0;
+                //chains[chainIndex].update();
+                //for (int i=0; i<relatedChains.size(); ++i) {
+                    //relatedChains[i]->update();
+                //}
+                //for (int i=0; i<otherChains.size(); ++i) {
+                    //otherChains[i]->update();
+                //}
                 for (auto& chain : chains) {
                     chain.update();
                 }
@@ -793,13 +883,12 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Lower the temperature
-                //currentTemp -= deltaTemp;
                 currentTemp *= deltaTemp;
                 
             }
 
             numDone++;
-            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
+            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "  rel=" << relatedChains.size() << "  oth=" << otherChains.size() << std::endl;
 
 		// Apply the linear constraints to each chain
 		} else if (somethingChanged) {
