@@ -120,7 +120,7 @@ public:
 			double finalAngle = atan2(finalY, finalX);
 
 			// If the final distance is less than the radius, snap it
-			if (std::abs(finalDist) < vectorLength / 2.0) {
+			if (std::abs(finalDist) < 5.0) {
 
 				// Move the last point this amount
 				move({finalDist * cos(finalAngle), finalDist * sin(finalAngle)});
@@ -633,6 +633,18 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    // Start with all random angles
+    for (int i=0; i<chains.size(); ++i) {
+        std::vector<double> startingAngles = {0.0};
+        for (int j=1; j<d; ++j) {
+            startingAngles.push_back(rand() / double(RAND_MAX) * 2.0 * M_PI);
+        }
+        chains[i].setAngles(startingAngles);
+    }
+    for (int i=0; i<chains.size(); ++i) {
+        chains[i].update();
+    }
+
 	// Vars used for event management
 	bool draggingBackground = false;
 	sf::Vector2i lastMousePos;
@@ -780,7 +792,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Per iteration output
-			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
+			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "  \r" << std::flush;
 
         // 6,5,3,1 max is 9.7, sqrt is 452
         
@@ -789,34 +801,27 @@ int main(int argc, char* argv[]) {
 
             // Find the non-fixed chain with the worst objective
             // ./run 30,10,10,10 -A 1 1000 -i 200 = 4103
-            double worstObjective = -1000.0;
-            int worstChainIndex = -1;
-            for (int i = 0; i < chains.size(); ++i) {
-                if (!chains[i].isFixed()) {
-                    continue;
-                }
-                //if (chains[i].getObjective() >= worstObjective || ((rand() / (double)RAND_MAX) > 0.9) {
-                if (chains[i].getObjective() >= worstObjective) {
-                    worstObjective = chains[i].getObjective();
-                    worstChainIndex = i;
-                }
-            }
-            int chainIndex = worstChainIndex;
-            std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
-            std::vector<Chain*> otherChains = {};
+            //double worstObjective = -1000.0;
+            //int worstChainIndex = -1;
             //for (int i = 0; i < chains.size(); ++i) {
-                //if (std::find(relatedChains.begin(), relatedChains.end(), &chains[i]) == relatedChains.end()) {
-                    //otherChains.push_back(&chains[i]);
+                //if (!chains[i].isFixed()) {
+                    //continue;
+                //}
+                ////if (chains[i].getObjective() >= worstObjective || ((rand() / (double)RAND_MAX) > 0.9) {
+                //if (chains[i].getObjective() >= worstObjective) {
+                    //worstObjective = chains[i].getObjective();
+                    //worstChainIndex = i;
                 //}
             //}
-            otherChains.push_back(&chains[chainIndex]);
+            //int chainIndex = worstChainIndex;
+            //std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
 
             // Pick a random fixed chain and the related chains
-            //int chainIndex = rand() % chains.size();
-            //while (!chains[chainIndex].isFixed()) {
-                //chainIndex = rand() % chains.size();
-            //}
-            //std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
+            int chainIndex = rand() % chains.size();
+            while (!chains[chainIndex].isFixed()) {
+                chainIndex = rand() % chains.size();
+            }
+            std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
 
             // Pick a random unfixed chain
             //int chainIndex = rand() % chains.size();
@@ -888,7 +893,7 @@ int main(int argc, char* argv[]) {
             }
 
             numDone++;
-            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "  rel=" << relatedChains.size() << "  oth=" << otherChains.size() << std::endl;
+            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
 
 		// Apply the linear constraints to each chain
 		} else if (somethingChanged) {
@@ -905,6 +910,8 @@ int main(int argc, char* argv[]) {
         window.display();
 
     }
+
+    std::cout << std::endl;
 
     return 0;
 }
