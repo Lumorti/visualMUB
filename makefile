@@ -3,6 +3,7 @@ CXX = g++
 
 # Compiler flags 
 CXXFLAGS = -std=c++11 -fmax-errors=2 
+DEBUGFLAGS = -pg -g -O0 -Wall
 
 # Linker flags
 LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -I/usr/include/eigen3
@@ -15,6 +16,9 @@ SOURCE = main.cpp
 
 all:
 	$(CXX) $(CXXFLAGS) $(SOURCE) -o $(OUTPUT) $(LDFLAGS)
+
+debug:
+	$(CXX) $(CXXFLAGS) $(DEBUGFLAGS) $(SOURCE) -o $(OUTPUT) $(LDFLAGS)
 
 depend:
 	sudo apt-get install libsfml-dev libeigen3-dev -y

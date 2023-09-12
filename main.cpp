@@ -107,7 +107,7 @@ public:
 	void snap() {
 
 		// Repeat a few times for better accuracy
-		for (int i=0; i<10; i++) {
+		for (long unsigned int i=0; i<10; i++) {
 
 			// How close the last point is versus the circle radius
 			double finalX = 0;
@@ -247,7 +247,7 @@ public:
 
 		// Set all the angles
 		std::pair<double,double> prevPos = startPosition;
-		for (int i=0; i<points.size(); ++i) {
+		for (long unsigned int i=0; i<points.size(); ++i) {
 			angles[i] = M_PI/2.0 + atan2(positions[i].second - prevPos.second, positions[i].first - prevPos.first);
 			prevPos = positions[i];
 		}
@@ -322,26 +322,34 @@ public:
     }
 
 	// Update the chain based on the others
+    void updateFromRelations() {
+
+        // If it's fixed, update the angles
+        if (relation.size() != 0) {
+
+            // For each element in the chain
+            for (int i = 0; i < points.size(); ++i) {
+
+                // Get the sum of the angles from the other chains
+                double angle = 0;
+                for (int j = 0; j < relation.size(); ++j) {
+                    angle += relation[j].first * relation[j].second->angles[i];
+                }
+
+                // Set the angle to this point
+                angles[i] = angle;
+
+            }
+
+        }
+
+    }
+    
+	// Update the chain
 	void update() {
-
-		// If it's fixed, update the angles
-		if (relation.size() != 0) {
-
-			// For each element in the chain
-			for (int i = 0; i < points.size(); ++i) {
-
-				// Get the sum of the angles from the other chains
-				double angle = 0;
-				for (int j = 0; j < relation.size(); ++j) {
-					angle += relation[j].first * relation[j].second->angles[i];
-				}
-
-				// Set the angle to this point
-				angles[i] = angle;
-
-			}
-
-		}
+		
+        // If it's fixed, update the angles
+        updateFromRelations();
 
 		// Set all the point and line positions based on the angles
 		updatePointsAndLines();
@@ -366,6 +374,26 @@ public:
 
 };
 
+// Given a chain list, update them all and return the objective
+double getObjective(std::vector<Chain>& chains) {
+
+    // Update all the chains
+    for (int i = 0; i < chains.size(); ++i) {
+        chains[i].updateFromRelations();
+        chains[i].updateObjective();
+    }
+
+    // The objective is the sum of squares of the individual objectives
+    double objective = 0;
+    for (int i = 0; i < chains.size(); ++i) {
+        objective += std::pow(chains[i].getObjective(), 2);
+    }
+
+    // Return the objective
+    return objective;
+
+}
+
 // Entry point
 int main(int argc, char* argv[]) {
 
@@ -373,10 +401,10 @@ int main(int argc, char* argv[]) {
 	int d = 3;
 	std::vector<int> N = {d, 1, 1, 1};
 	bool fixFirst = true;
-    std::string mode = "none";
+    std::vector<std::string> modes;
 	double startTemp = 1.0;
 	int steps = 1000;
-    bool stopEarly = false;
+    int maxIters = 1000;
 
 	// Parse the command line arguments
 	std::string arg = "";
@@ -404,7 +432,15 @@ int main(int argc, char* argv[]) {
 
 		// If asked to display the help
 		} else if (std::string(argv[i]) == "-h") {
-			std::cout << "Usage: " << argv[0] << " [-N <basis sizes>] [-a/A <temp> <steps>] [-1] [-s]" << std::endl;
+			std::cout << "Usage: " << argv[0] << std::endl;
+			std::cout << "General args: " << argv[0] << std::endl;
+			std::cout << "  -N <basis sizes>   Comma seperated list of basis sizes, e.g. 3,1,1,1" << std::endl; 
+            std::cout << "  -1                 Don't fix the first angle" << std::endl;
+			std::cout << "Stackable args: " << argv[0] << std::endl;
+            std::cout << "  -a <temp> <stps>        Anneal all the chains at once" << std::endl;
+            std::cout << "  -A <temp> <stps> <itrs> Anneal each chain one at a time" << std::endl;
+            std::cout << "  -c                      Check each chain in each direction" << std::endl;
+            std::cout << "  -s                      Stop, closing the window" << std::endl;
 			return 0;
 
 		// If told not to fix the first angle
@@ -413,19 +449,24 @@ int main(int argc, char* argv[]) {
 
 		// If told to anneal everything at once
 		} else if (std::string(argv[i]) == "-a") {
-			mode = "annealFull";
+            modes.push_back("annealFull");
 			startTemp = std::stof(argv[i + 1]);
 			steps = std::stoi(argv[i + 2]);
 
-		// If told to anneal everything at once
+		// If told to anneal everything one chain at a time
 		} else if (std::string(argv[i]) == "-A") {
-			mode = "annealPartial";
+            modes.push_back("annealPartial");
 			startTemp = std::stof(argv[i + 1]);
 			steps = std::stoi(argv[i + 2]);
+            maxIters = std::stoi(argv[i + 3]);
 
         // If told to stop early
         } else if (std::string(argv[i]) == "-s") {
-            stopEarly = true;
+            modes.push_back("stop");
+
+        // If told to use the check mode
+        } else if (std::string(argv[i]) == "-c") {
+            modes.push_back("check");
 
 		}
 
@@ -448,14 +489,10 @@ int main(int argc, char* argv[]) {
 	// Create each of the chains representing the MUBs
 	double scaling = 100.0;
 	double spacing = scaling * 3.0;
-	int gridX = 0;
-	int gridY = 0;
 	double minX = 0;
 	double minY = 0;
 	double maxX = 0;
 	double maxY = 0;
-	int NSoFarI = 0;
-	int NSoFarJ = 0;
 	std::vector<Chain> chains;
 	for (int i = 1; i < N.size(); ++i) {
 		int NSoFarI = 0;
@@ -487,15 +524,13 @@ int main(int argc, char* argv[]) {
 					maxX = std::max(maxX, currentX);
 					maxY = std::max(maxY, currentY);
 						
-					// Orthogonality TODO these first
+					// Orthogonality
 					if (i == j) {
                         chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}, fixFirst));
-                        //chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, 0.0, {gridX, gridY}, fixFirst));
 
 					// Mutually unbiasedness
 					} else {
                         chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}, fixFirst));
-                        //chains.insert(chains.begin(), Chain(d, {currentX, currentY}, sqrt(d)*scaling/d, scaling, {gridX, gridY}, fixFirst));
 					}
 
 				}
@@ -612,10 +647,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Output problem info TODO patterns
-    //std::cout << reducedA.block(0, rank, rank, reducedA.cols() - rank) << std::endl;
+    // Output problem info
     Eigen::MatrixXd reducedA2 = reducedA.block(0, rank, rank, reducedA.cols() - rank);
-    //std::cout << reducedA2 << std::endl;
     for (int i=0; i<reducedA2.rows(); ++i) {
         std::cout << reducedA2.row(i) << "   =  r(" << chains[i].getRadius() << ")" << std::endl;
     }
@@ -629,19 +662,16 @@ int main(int argc, char* argv[]) {
     std::cout << chains.size() - numZero << " have radius non-zero" << std::endl;
     std::cout << "   " << numNonZeroAndFixed << " of these are fixed" << std::endl;
     std::cout << "   " << numNonZero - numNonZeroAndFixed << " of these are free" << std::endl;
-    if (stopEarly) {
-        return 0;
-    }
 
     // Start with all random angles
-    for (int i=0; i<chains.size(); ++i) {
+    for (long unsigned int i=0; i<chains.size(); ++i) {
         std::vector<double> startingAngles = {0.0};
         for (int j=1; j<d; ++j) {
             startingAngles.push_back(rand() / double(RAND_MAX) * 2.0 * M_PI);
         }
         chains[i].setAngles(startingAngles);
     }
-    for (int i=0; i<chains.size(); ++i) {
+    for (long unsigned int i=0; i<chains.size(); ++i) {
         chains[i].update();
     }
 
@@ -655,6 +685,12 @@ int main(int argc, char* argv[]) {
     double deltaTemp = std::pow(1e-7 / startTemp, 1.0 / float(steps));
 	double prevObjective = 100000000.0;
     int numDone = 0;
+    double checkDelta = 1.00;
+    sf::Clock clock;
+    int fps = 0;
+    int itersPerFrame = 1;
+
+    // Drawing high dimensions slows it down, to remove TODO
 
 	// Set the initial view so we can see everything
 	currentView.setCenter((minX+maxX+scaling)/2.0, (minY+maxY+scaling)/2.0);
@@ -662,6 +698,16 @@ int main(int argc, char* argv[]) {
 
 	// Start the main loop
     while (window.isOpen()) {
+
+        // Get the change in time, based on this do more iters per frame
+        sf::Time elapsed = clock.getElapsedTime();
+        clock.restart();
+        fps = 1.0 / elapsed.asSeconds();
+        if (fps > 30) {
+            itersPerFrame++;
+        } else if (fps < 30) {
+            itersPerFrame--;
+        }
 
 		// Process events
         sf::Event event;
@@ -729,14 +775,23 @@ int main(int argc, char* argv[]) {
         // 6,6,3,1 final max is 19, sqrt is 3322
         // 6,5,3,1 final max is 9, sqrt is 3322
 
+        std::string mode = "none";
+        if (modes.size() > 0) {
+            mode = modes[0];
+        }
+
+        // If told to stop
+        if (mode == "stop") {
+            return 0;
+
 		// If told to anneal
-		if (mode == "annealFull" && currentTemp > 1e-6) {
+        } else if (mode == "annealFull") {
 
             // Do a bunch of iters at once
             double overallObjective = 0.0;
             double averageObjective = 0.0;
             double maxObjective = 0.0;
-            for (int iter = 0; iter < std::min(1000, steps); ++iter) {
+            for (int iter = 0; iter < itersPerFrame; ++iter) {
 
                 // For each chain
                 std::vector<std::vector<double>> prevAngles(chains.size());
@@ -794,9 +849,14 @@ int main(int argc, char* argv[]) {
             // Per iteration output
 			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "  \r" << std::flush;
 
-        // 6,5,3,1 max is 9.7, sqrt is 452
-        
-        // If told to anneal little sections at once TODO
+            // If we are done, remove this mode
+            if (currentTemp < 1e-6) {
+                std::cout << std::endl;
+                currentTemp = startTemp;
+                modes.erase(modes.begin());
+            }
+
+        // If told to anneal little sections at once 
         } else if (mode == "annealPartial") {
 
             // Find the non-fixed chain with the worst objective
@@ -858,19 +918,11 @@ int main(int argc, char* argv[]) {
                 overallObjective = 0.0;
                 maxObjective = 0.0;
                 averageObjective = 0.0;
-                //chains[chainIndex].update();
-                //for (int i=0; i<relatedChains.size(); ++i) {
-                    //relatedChains[i]->update();
-                //}
-                //for (int i=0; i<otherChains.size(); ++i) {
-                    //otherChains[i]->update();
-                //}
                 for (auto& chain : chains) {
                     chain.update();
                 }
                 for (auto& chain : chains) {
                     overallObjective += std::pow(chain.getObjective(), 2);
-                    //overallObjective += std::abs(chain.getObjective());
                     maxObjective = std::max(maxObjective, chain.getObjective());
                     averageObjective += chain.getObjective();
                 }
@@ -892,12 +944,98 @@ int main(int argc, char* argv[]) {
                 
             }
 
+            // Per iteration output
             numDone++;
-            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << std::endl;
+            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "\r" << std::flush;
+
+            // If we're done
+            if (numDone > maxIters) {
+                std::cout << std::endl;
+                numDone = 0;
+                modes.erase(modes.begin());
+            }
+
+        // If using the check mode (checking each chain in each direction)
+        // TODO optimize
+        } else if (mode == "check") {
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Keep track of each time we update the best objective
+                int numChanges = 0;
+
+                // Calculate the objective
+                double bestObjective = getObjective(chains);
+                double maxDiff = 0.0;
+                for (int i=0; i<chains.size(); ++i) {
+                    maxDiff = std::max(maxDiff, chains[i].getObjective());
+                }
+                std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  itrs=" << itersPerFrame << "     \r" << std::flush;
+
+                // For each non-fixed chain
+                for (int j=0; j<chains.size(); ++j) {
+                    if (chains[j].isFixed()) {
+                        continue;
+                    }
+
+                    // Check the effect of moving each direction
+                    std::vector<double> angles = chains[j].getAngles();
+                    for (int k=1; k<angles.size(); ++k) {
+
+                        // SAve the old angle
+                        double oldAngle = angles[k];
+
+                        // Check plus checkDelta
+                        angles[k] += checkDelta;
+                        chains[j].setAngles(angles);
+                        double objective = getObjective(chains);
+                        if (objective >= bestObjective) {
+                            angles[k] = oldAngle;
+                        } else {
+                            bestObjective = objective;
+                            numChanges++;
+                            continue;
+                        }
+
+                        // Check minus checkDelta
+                        angles[k] -= checkDelta;
+                        chains[j].setAngles(angles);
+                        objective = getObjective(chains);
+                        if (objective >= bestObjective) {
+                            angles[k] = oldAngle;
+                        } else {
+                            bestObjective = objective;
+                            numChanges++;
+                            continue;
+                        }
+
+                    }
+                    chains[j].setAngles(angles);
+
+                }
+
+                // If no changes, decrease checkDelta
+                if (numChanges == 0) {
+                    checkDelta *= 0.1;
+                    if (checkDelta < 1e-30) {
+                        std::cout << std::endl;
+                        checkDelta = 1.0;
+                        modes.erase(modes.begin());
+                        break;
+                    }
+                }
+
+            }
+
+            // Update the visuals
+			for (long unsigned int i=0; i<chains.size(); ++i) {
+				chains[i].updatePointsAndLines();
+			}
 
 		// Apply the linear constraints to each chain
 		} else if (somethingChanged) {
-			for (int i = 0; i < chains.size(); ++i) {
+			for (long unsigned int i=0; i<chains.size(); ++i) {
 				chains[i].update();
 			}
 		}
