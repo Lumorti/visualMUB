@@ -3,6 +3,7 @@ CXX = g++
 
 # Compiler flags 
 CXXFLAGS = -std=c++11 -fmax-errors=2 
+FASTFLAGS = -O3 
 DEBUGFLAGS = -pg -g -O0 -Wall
 
 # Linker flags
@@ -15,7 +16,7 @@ OUTPUT = run
 SOURCE = main.cpp
 
 all:
-	$(CXX) $(CXXFLAGS) $(SOURCE) -o $(OUTPUT) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(FASTFLAGS) $(SOURCE) -o $(OUTPUT) $(LDFLAGS)
 
 debug:
 	$(CXX) $(CXXFLAGS) $(DEBUGFLAGS) $(SOURCE) -o $(OUTPUT) $(LDFLAGS)
