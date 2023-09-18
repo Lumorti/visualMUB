@@ -12,7 +12,7 @@ private:
 	int numVectors = 0;
     int dragging = -1;
 	double radius = 0;
-	double vectorLength = 1;
+    std::vector<double> vectorLengths;
 	double objective = 0.0;
 	bool fixFirst = true;
 	std::vector<double> angles;
@@ -42,7 +42,7 @@ public:
 		// Update the points based on the angles
 		std::pair<double,double> prevPos = startPosition;
 		for (int i = 0; i < points.size(); ++i) {
-			positions[i] = {prevPos.first + vectorLength * sin(angles[i]), prevPos.second - vectorLength * cos(angles[i])};
+			positions[i] = {prevPos.first + vectorLengths[i] * sin(angles[i]), prevPos.second - vectorLengths[i] * cos(angles[i])};
 			points[i].setPosition(positions[i].first, positions[i].second);
 			prevPos = positions[i];
 		}
@@ -53,6 +53,7 @@ public:
 			double angle = atan2(positions[i].second - prevPos.second, positions[i].first - prevPos.first);
 			lines[i].setPosition(prevPos.first, prevPos.second);
 			lines[i].setRotation(angle * 180.0 / M_PI);
+            lines[i].setSize({float(vectorLengths[i]), float(lineThickness)});
 			prevPos = positions[i];
 		}
 
@@ -74,9 +75,14 @@ public:
         return radius;
     }
 
-    // Get the vector length
-    double getVectorLength() {
-        return vectorLength;
+    // Get the vector lengths
+    std::vector<double> getVectorLengths() {
+        return vectorLengths;
+    }
+
+    // Set the vector length
+    void setVectorLengths(std::vector<double> vectorLengths_) {
+        vectorLengths = vectorLengths_;
     }
 
     // Get a list of the chains that related to this
@@ -103,8 +109,8 @@ public:
 		double finalX = 0;
 		double finalY = 0;
 		for (int i = 0; i < angles.size(); ++i) {
-			finalX += vectorLength * sin(angles[i]);
-			finalY -= vectorLength * cos(angles[i]);
+			finalX += vectorLengths[i] * sin(angles[i]);
+			finalY -= vectorLengths[i] * cos(angles[i]);
 		}
 		return atan2(finalY, finalX);
 	}
@@ -119,8 +125,8 @@ public:
 			double finalX = 0;
 			double finalY = 0;
 			for (int i = 0; i < angles.size(); ++i) {
-				finalX += vectorLength * sin(angles[i]);
-				finalY -= vectorLength * cos(angles[i]);
+				finalX += vectorLengths[i] * sin(angles[i]);
+				finalY -= vectorLengths[i] * cos(angles[i]);
 			}
 			double finalDist = radius - sqrt(finalX * finalX + finalY * finalY);
 			double finalAngle = atan2(finalY, finalX);
@@ -162,8 +168,8 @@ public:
 		double finalX = 0;
 		double finalY = 0;
 		for (int i=0; i<angles.size(); ++i) {
-			finalX += vectorLength * sin(angles[i]);
-			finalY -= vectorLength * cos(angles[i]);
+			finalX += vectorLengths[i] * sin(angles[i]);
+			finalY -= vectorLengths[i] * cos(angles[i]);
 		}
 		double finalDist = sqrt(finalX * finalX + finalY * finalY);
 		objective = abs(finalDist - radius);
@@ -178,7 +184,7 @@ public:
 
 		// Set the size of the points
 		numVectors = numVectors_;
-		vectorLength = vectorLength_;
+		vectorLengths = std::vector<double>(numVectors, vectorLength_);
 		startPosition = startPosition_;
 		vecIndices = vecIndices_;
 		radius = circleRadius_;
@@ -198,7 +204,7 @@ public:
 			positions.push_back(std::pair<double,double>(0,0));
 
 			// Create the line
-			sf::RectangleShape line(sf::Vector2f(vectorLength, lineThickness));
+			sf::RectangleShape line(sf::Vector2f(vectorLengths[i], lineThickness));
 			line.setFillColor(sf::Color::Black);
 			line.setOrigin(0, lineThickness / 2.0);
 			lines.push_back(line);
@@ -247,7 +253,7 @@ public:
 			double angles = atan2(positions[i + 1].second - positions[i].second, positions[i + 1].first - positions[i].first);
 			
 			// Move with that angle to the right distance
-			positions[i] = std::pair<double,double>(positions[i + 1].first - vectorLength * cos(angles), positions[i + 1].second - vectorLength * sin(angles));
+			positions[i] = std::pair<double,double>(positions[i + 1].first - vectorLengths[i] * cos(angles), positions[i + 1].second - vectorLengths[i] * sin(angles));
 
 		}
 
@@ -404,13 +410,14 @@ double getObjective(std::vector<Chain>& chains) {
 int main(int argc, char* argv[]) {
 
 	// Settings
-	int d = 3;
+	int d = -1;
 	std::vector<int> N = {d, 1, 1, 1};
 	bool fixFirst = true;
     std::vector<std::string> modes;
 	double startTemp = 1.0;
-	int steps = 1000;
-    int maxIters = 1000;
+	int steps = 10000;
+    int maxIters = 100;
+    bool visual = true;
 
 	// Parse the command line arguments
 	std::string arg = "";
@@ -433,24 +440,26 @@ int main(int argc, char* argv[]) {
 			}
 			N.push_back(std::stoi(NString));
 
-			// Require that the first basis size is the same as the dimension
-			d = N[0];
-
 		// If asked to display the help
 		} else if (std::string(argv[i]) == "-h") {
 			std::cout << "Usage: " << argv[0] << std::endl;
 			std::cout << "General args: " << argv[0] << std::endl;
-			std::cout << "  -N <basis sizes>   Comma seperated list of basis sizes, e.g. 3,1,1,1" << std::endl; 
+			std::cout << "  -N <basis sizes>   Comma seperated list of basis sizes, first is dimension" << std::endl; 
             std::cout << "  -1                 Don't fix the first angle" << std::endl;
             std::cout << "  -t <dbl>           Set the starting temperature" << std::endl;
             std::cout << "  -i <int>           Set the number of anneal steps" << std::endl;
             std::cout << "  -I <int>           Set the number of times to anneal" << std::endl;
+            std::cout << "  -d <int>           Set the dimension (changing only the radii)" << std::endl;
+            std::cout << "  -v                 Disable visualisation" << std::endl;
 			std::cout << "Stackable args: " << argv[0] << std::endl;
             std::cout << "  -a                 Anneal all the chains at once" << std::endl;
             std::cout << "  -A                 Anneal each chain one at a time" << std::endl;
             std::cout << "  -r                 Randomise the angles" << std::endl;
             std::cout << "  -c                 Check each chain in each direction" << std::endl;
+            std::cout << "  -C                 Check one chain at a time in each direction" << std::endl;
             std::cout << "  -o                 Output all angles" << std::endl;
+            std::cout << "  -O                 Output the true vectors that are MU" << std::endl;
+            std::cout << "  -D                 Decrease the dimension by one, adiabatically" << std::endl;
             std::cout << "  -s                 Stop, closing the window" << std::endl;
 			return 0;
 
@@ -465,6 +474,15 @@ int main(int argc, char* argv[]) {
         // If setting the anneal steps
         } else if (std::string(argv[i]) == "-i") {
             steps = std::stoi(argv[i + 1]);
+
+        // If told not to visualise
+        } else if (std::string(argv[i]) == "-v") {
+            visual = false;
+            modes.push_back("stop");
+
+        // If given a dimension
+        } else if (std::string(argv[i]) == "-d") {
+            d = std::stoi(argv[i + 1]);
 
         // If setting the number of times to anneal
         } else if (std::string(argv[i]) == "-I") {
@@ -486,23 +504,44 @@ int main(int argc, char* argv[]) {
         } else if (std::string(argv[i]) == "-c") {
             modes.push_back("check");
 
+        // If told to use the check mode per chain
+        } else if (std::string(argv[i]) == "-C") {
+            modes.push_back("checkPartial");
+
         // If told to randomise the angles
         } else if (std::string(argv[i]) == "-r") {
             modes.push_back("random");
+
+        // If told to decrease the dimension
+        } else if (std::string(argv[i]) == "-D") {
+            modes.push_back("decrease");
 
         // If told to output all the angles
         } else if (std::string(argv[i]) == "-o") {
             modes.push_back("output");
 
+        // If told to output all the true angles
+        } else if (std::string(argv[i]) == "-O") {
+            modes.push_back("outputTrue");
+
 		}
 
 	}
+
+    // If d hasn't been set, set it to the dimension of the first basis
+    if (d == -1) {
+        d = N[0];
+    }
 
 	// Create the main window
 	sf::ContextSettings settings;
     settings.antialiasingLevel = 3.0;
 	int windowWidth = 1280;
 	int windowHeight = 720;
+    if (!visual) {
+        windowWidth = 1;
+        windowHeight = 1;
+    }
     sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), "Visual MUBs", sf::Style::Default, settings);
 	window.setFramerateLimit(60);
 
@@ -552,11 +591,11 @@ int main(int argc, char* argv[]) {
 						
 					// Orthogonality
 					if (i == j) {
-                        chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/double(d), 0.0, {gridX, gridY}, fixFirst));
+                        chains.push_back(Chain(N[0], {currentX, currentY}, sqrt(d)*scaling/double(d), 0.0, {gridX, gridY}, fixFirst));
 
 					// Mutually unbiasedness
 					} else {
-                        chains.push_back(Chain(d, {currentX, currentY}, sqrt(d)*scaling/double(d), scaling, {gridX, gridY}, fixFirst));
+                        chains.push_back(Chain(N[0], {currentX, currentY}, sqrt(d)*scaling/double(d), scaling, {gridX, gridY}, fixFirst));
 					}
 
 				}
@@ -705,7 +744,7 @@ int main(int argc, char* argv[]) {
     // Start with all random angles
     for (long unsigned int i=0; i<chains.size(); ++i) {
         std::vector<double> startingAngles = {0.0};
-        for (int j=1; j<d; ++j) {
+        for (int j=1; j<N[0]; ++j) {
             startingAngles.push_back(rand() / double(RAND_MAX) * 2.0 * M_PI);
         }
         chains[i].setAngles(startingAngles);
@@ -728,15 +767,14 @@ int main(int argc, char* argv[]) {
     sf::Clock clock;
     int fps = 0;
     int itersPerFrame = 1;
-
-    // Drawing high dimensions slows it down, to remove TODO
+    std::vector<int> chainIndices = {0, 1};
 
 	// Set the initial view so we can see everything
 	currentView.setCenter((minX+maxX+scaling)/2.0, (minY+maxY+scaling)/2.0);
 	window.setView(currentView);
 
 	// Start the main loop
-    while (window.isOpen()) {
+    while (window.isOpen() || !visual) {
 
         // Get the change in time, based on this do more iters per frame
         sf::Time elapsed = clock.getElapsedTime();
@@ -744,7 +782,7 @@ int main(int argc, char* argv[]) {
         fps = 1.0 / elapsed.asSeconds();
         if (fps > 10) {
             itersPerFrame++;
-        } else if (fps < 10) {
+        } else if (fps < 10 && itersPerFrame > 1) {
             itersPerFrame--;
         }
 
@@ -898,36 +936,12 @@ int main(int argc, char* argv[]) {
         // If told to anneal little sections at once 
         } else if (mode == "annealPartial") {
 
-            // Find the non-fixed chain with the worst objective
-            // ./run 30,10,10,10 -A 1 1000 -i 200 = 4103
-            //double worstObjective = -1000.0;
-            //int worstChainIndex = -1;
-            //for (int i = 0; i < chains.size(); ++i) {
-                //if (!chains[i].isFixed()) {
-                    //continue;
-                //}
-                ////if (chains[i].getObjective() >= worstObjective || ((rand() / (double)RAND_MAX) > 0.9) {
-                //if (chains[i].getObjective() >= worstObjective) {
-                    //worstObjective = chains[i].getObjective();
-                    //worstChainIndex = i;
-                //}
-            //}
-            //int chainIndex = worstChainIndex;
-            //std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
-
             // Pick a random fixed chain and the related chains
             int chainIndex = rand() % chains.size();
             while (!chains[chainIndex].isFixed()) {
                 chainIndex = rand() % chains.size();
             }
             std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
-
-            // Pick a random unfixed chain
-            //int chainIndex = rand() % chains.size();
-            //while (chains[chainIndex].isFixed()) {
-                //chainIndex = rand() % chains.size();
-            //}
-            //std::vector<Chain*> relatedChains = {&chains[chainIndex]};
 
             // Do a bunch of iters
             double overallObjective = 0.0;
@@ -1020,22 +1034,58 @@ int main(int argc, char* argv[]) {
             // If we're done
             modes.erase(modes.begin());
 
-        // If using the check mode (checking each chain in each direction)
-        } else if (mode == "check") {
+        // If decreasing the dimension by one 
+        } else if (mode == "decrease") {
+
+            // Each time we're stable, reduce the length a bit
+            if (checkDelta < 1e-10) {
+                checkDelta = 1.0;
+
+                // Adjust the lengths
+                int numDone = 0;
+                for (auto& chain : chains) {
+                    std::vector<double> lengths = chain.getVectorLengths();
+                    double deltaL = 0.5;
+                    for (int i=0; i<lengths.size(); ++i) {
+                        if (i == 1) {
+                            if (lengths[i] >= deltaL) {
+                                lengths[i] -= deltaL;
+                            } else {
+                                lengths[i] = 0.0;
+                                numDone++;
+                            }
+                        } else {
+                            if (lengths[i] <= scaling*sqrt(d-1)/(d-1) - deltaL) {
+                                lengths[i] += deltaL;
+                            } else {
+                                lengths[i] = scaling*sqrt(d-1)/(d-1);
+                                numDone++;
+                            }
+                        }
+                    }
+                    chain.setVectorLengths(lengths);
+                }
+
+                // When all the chains are the new size
+                if (numDone == chains.size()*d) {
+                    modes.erase(modes.begin());
+                }
+
+            }
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            double maxDiff = 0.0;
+            for (int i=0; i<chains.size(); ++i) {
+                maxDiff = std::max(maxDiff, chains[i].getObjective());
+            }
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  len=" << chains[0].getVectorLengths()[1] << "     \r" << std::flush;
 
             // Do a few iterations per display frame
             for (int j=0; j<itersPerFrame; j++) {
 
                 // Keep track of each time we update the best objective
                 int numChanges = 0;
-
-                // Calculate the objective
-                double bestObjective = getObjective(chains);
-                double maxDiff = 0.0;
-                for (int i=0; i<chains.size(); ++i) {
-                    maxDiff = std::max(maxDiff, chains[i].getObjective());
-                }
-                std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  itrs=" << itersPerFrame << "     \r" << std::flush;
 
                 // For each non-fixed chain
                 for (int j=0; j<chains.size(); ++j) {
@@ -1050,7 +1100,86 @@ int main(int argc, char* argv[]) {
                             continue;
                         }
 
-                        // SAve the old angle
+                        // Save the old angle
+                        double oldAngle = angles[k];
+
+                        // Check plus checkDelta
+                        angles[k] += checkDelta;
+                        chains[j].setAngles(angles);
+                        double objective = getObjective(chains);
+                        if (objective >= bestObjective) {
+                            angles[k] = oldAngle;
+                        } else {
+                            bestObjective = objective;
+                            numChanges++;
+                            continue;
+                        }
+
+                        // Check minus checkDelta
+                        angles[k] -= checkDelta;
+                        chains[j].setAngles(angles);
+                        objective = getObjective(chains);
+                        if (objective >= bestObjective) {
+                            angles[k] = oldAngle;
+                        } else {
+                            bestObjective = objective;
+                            numChanges++;
+                            continue;
+                        }
+
+                    }
+                    chains[j].setAngles(angles);
+
+                }
+
+                // If no changes, decrease checkDelta
+                if (numChanges == 0) {
+                    checkDelta *= 0.1;
+                    if (checkDelta < 1e-10) {
+                        break;
+                    }
+                }
+
+            }
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // If using the check mode (checking each chain in each direction)
+        } else if (mode == "check") {
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            double maxDiff = 0.0;
+            for (int i=0; i<chains.size(); ++i) {
+                maxDiff = std::max(maxDiff, chains[i].getObjective());
+            }
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  itrs=" << itersPerFrame << "     \r" << std::flush;
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Keep track of each time we update the best objective
+                int numChanges = 0;
+
+                // For each non-fixed chain
+                for (int j=0; j<chains.size(); ++j) {
+                    if (chains[j].isFixed()) {
+                        continue;
+                    }
+
+                    // Check the effect of moving each direction
+                    std::vector<double> angles = chains[j].getAngles();
+                    for (int k=0; k<angles.size(); ++k) {
+                        if (k == 0 && fixFirst) {
+                            continue;
+                        }
+
+                        // Save the old angle
                         double oldAngle = angles[k];
 
                         // Check plus checkDelta
@@ -1096,11 +1225,106 @@ int main(int argc, char* argv[]) {
             }
 
             // Update the visuals
-			for (long unsigned int i=0; i<chains.size(); ++i) {
-				chains[i].updatePointsAndLines();
-			}
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
 
-        // If told to output all angles TODO
+        // If using the check mode (checking one chain in each direction)
+        // # TODO
+        } else if (mode == "checkPartial") {
+
+            // If we've converged, chain chain
+            if (checkDelta < 1e-30) {
+                checkDelta = 1.0;
+                for (int i=0; i<chainIndices.size(); ++i) {
+                    chainIndices[i] = (chainIndices[i] + 1) % chains.size();
+                    while (chains[chainIndices[i]].isFixed()) {
+                        chainIndices[i] = (chainIndices[i] + 1) % chains.size();
+                    }
+                }
+            }
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            double maxDiff = 0.0;
+            for (int i=0; i<chains.size(); ++i) {
+                maxDiff = std::max(maxDiff, chains[i].getObjective());
+            }
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  itrs=" << itersPerFrame << "     \r" << std::flush;
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Keep track of each time we update the best objective
+                int numChanges = 0;
+
+                // For each non-fixed chain
+                for (auto j : chainIndices) {
+                //for (int j=0; j<chains.size(); ++j) {
+                    //int j = chainIndex;
+                    //if (chains[j].isFixed()) {
+                        //continue;
+                    //}
+
+                    // Check the effect of moving each direction
+                    std::vector<double> angles = chains[j].getAngles();
+                    for (int k=0; k<angles.size(); ++k) {
+                        if (k == 0 && fixFirst) {
+                            continue;
+                        }
+
+                        // Save the old angle
+                        double oldAngle = angles[k];
+
+                        // Check plus checkDelta
+                        angles[k] += checkDelta;
+                        chains[j].setAngles(angles);
+                        double objective = getObjective(chains);
+                        if (objective >= bestObjective) {
+                            angles[k] = oldAngle;
+                        } else {
+                            bestObjective = objective;
+                            numChanges++;
+                            continue;
+                        }
+
+                        // Check minus checkDelta
+                        angles[k] -= checkDelta;
+                        chains[j].setAngles(angles);
+                        objective = getObjective(chains);
+                        if (objective >= bestObjective) {
+                            angles[k] = oldAngle;
+                        } else {
+                            bestObjective = objective;
+                            numChanges++;
+                            continue;
+                        }
+
+                    }
+                    chains[j].setAngles(angles);
+
+                }
+
+                // If no changes, decrease checkDelta
+                if (numChanges == 0) {
+                    checkDelta *= 0.1;
+                    if (checkDelta < 1e-30) {
+                        break;
+                    }
+                }
+
+            }
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // If told to output all angles
         } else if (mode == "output") {
             
             // Set the output precision
@@ -1121,7 +1345,21 @@ int main(int argc, char* argv[]) {
             // We're done with this mode
             modes.erase(modes.begin());
 
-		// Apply the linear constraints to each chain
+        // If told to output the true angles of the vectors
+        } else if (mode == "outputTrue") {
+            
+            // Set the output precision
+            std::cout << std::setprecision(10);
+
+            // Calculate the true angles TODO
+
+            // Reset the precision
+            std::cout << std::setprecision(5);
+
+            // We're done with this mode
+            modes.erase(modes.begin());
+
+		// Otherwise just update if the user changed something
 		} else if (somethingChanged) {
 			for (long unsigned int i=0; i<chains.size(); ++i) {
 				chains[i].update();
@@ -1129,11 +1367,13 @@ int main(int argc, char* argv[]) {
 		}
 
 		// Clear the window, white background
-        window.clear(sf::Color::White);
-		for (auto& chain : chains) {
-			chain.draw(window, font);
-		}
-        window.display();
+        if (visual) {
+            window.clear(sf::Color::White);
+            for (auto& chain : chains) {
+                chain.draw(window, font);
+            }
+            window.display();
+        }
 
     }
 
