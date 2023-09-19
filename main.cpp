@@ -36,6 +36,11 @@ public:
 		return objective;
 	}
 
+    // Set whether the first angle should be fixed
+    void setFirstAngleFixed(bool fixFirst_) {
+        fixFirst = fixFirst_;
+    }
+
 	// Update the points and lines based on the angles
 	void updatePointsAndLines() {
 
@@ -99,6 +104,11 @@ public:
         return angles;
     }
 
+    // Get the two vec indices
+    std::pair<int, int> getVecIndices() {
+        return vecIndices;
+    }
+
     // Set the angles
     void setAngles(std::vector<double> angles_) {
         angles = angles_;
@@ -144,11 +154,6 @@ public:
 
 		}
 
-	}
-
-	// Getter
-	std::pair<int, int> getVecIndices() {
-		return vecIndices;
 	}
 
 	// Check if the user is dragging any point
@@ -250,10 +255,10 @@ public:
 		for (int i=toDrag-1; i>=0; --i) {
 
 			// Get the angle between this point at the one after it
-			double angles = atan2(positions[i + 1].second - positions[i].second, positions[i + 1].first - positions[i].first);
+			double angle = atan2(positions[i + 1].second - positions[i].second, positions[i + 1].first - positions[i].first);
 			
 			// Move with that angle to the right distance
-			positions[i] = std::pair<double,double>(positions[i + 1].first - vectorLengths[i] * cos(angles), positions[i + 1].second - vectorLengths[i] * sin(angles));
+			positions[i] = std::pair<double,double>(positions[i + 1].first - vectorLengths[i + 1] * cos(angle), positions[i + 1].second - vectorLengths[i + 1] * sin(angle));
 
 		}
 
@@ -415,8 +420,9 @@ int main(int argc, char* argv[]) {
 	bool fixFirst = true;
     std::vector<std::string> modes;
 	double startTemp = 1.0;
-	int steps = 10000;
-    int maxIters = 100;
+	int stepsFull = 100000;
+	int stepsPartial = 1000;
+    int maxIters = 1000;
     bool visual = true;
 
 	// Parse the command line arguments
@@ -447,20 +453,23 @@ int main(int argc, char* argv[]) {
 			std::cout << "  -N <basis sizes>   Comma seperated list of basis sizes, first is dimension" << std::endl; 
             std::cout << "  -1                 Don't fix the first angle" << std::endl;
             std::cout << "  -t <dbl>           Set the starting temperature" << std::endl;
-            std::cout << "  -i <int>           Set the number of anneal steps" << std::endl;
-            std::cout << "  -I <int>           Set the number of times to anneal" << std::endl;
+            std::cout << "  -i <int>           Set the number of full anneal steps" << std::endl;
+            std::cout << "  -I <int>           Set the number of partial anneal steps" << std::endl;
+            std::cout << "  -p <int>           Set the number of times to anneal" << std::endl;
             std::cout << "  -d <int>           Set the dimension (changing only the radii)" << std::endl;
             std::cout << "  -v                 Disable visualisation" << std::endl;
 			std::cout << "Stackable args: " << argv[0] << std::endl;
-            std::cout << "  -a                 Anneal all the chains at once" << std::endl;
-            std::cout << "  -A                 Anneal each chain one at a time" << std::endl;
-            std::cout << "  -r                 Randomise the angles" << std::endl;
-            std::cout << "  -c                 Check each chain in each direction" << std::endl;
-            std::cout << "  -C                 Check one chain at a time in each direction" << std::endl;
-            std::cout << "  -o                 Output all angles" << std::endl;
-            std::cout << "  -O                 Output the true vectors that are MU" << std::endl;
-            std::cout << "  -D                 Decrease the dimension by one, adiabatically" << std::endl;
-            std::cout << "  -s                 Stop, closing the window" << std::endl;
+            std::cout << "  --annealFull       Anneal all the chains at once" << std::endl;
+            std::cout << "  --annealPartial    Anneal each chain one at a time" << std::endl;
+            std::cout << "  --random           Randomise the angles" << std::endl;
+            std::cout << "  --check            Check each chain in each direction" << std::endl;
+            std::cout << "  --output           Output all angles in radians" << std::endl;
+            std::cout << "  --outputDeg        Output all angles in degrees" << std::endl;
+            std::cout << "  --outputTrue       Output the true angles" << std::endl;
+            std::cout << "  --outputTrueDeg    Output the true angles in degrees" << std::endl;
+            std::cout << "  --outputVectors    Output the true MU vectors" << std::endl;
+            std::cout << "  --decrease         Decrease the dimension by one, adiabatically" << std::endl;
+            std::cout << "  --stop             Stop, closing the window" << std::endl;
 			return 0;
 
 		// If told not to fix the first angle
@@ -471,10 +480,6 @@ int main(int argc, char* argv[]) {
         } else if (std::string(argv[i]) == "-t") {
             startTemp = std::stof(argv[i + 1]);
 
-        // If setting the anneal steps
-        } else if (std::string(argv[i]) == "-i") {
-            steps = std::stoi(argv[i + 1]);
-
         // If told not to visualise
         } else if (std::string(argv[i]) == "-v") {
             visual = false;
@@ -484,45 +489,21 @@ int main(int argc, char* argv[]) {
         } else if (std::string(argv[i]) == "-d") {
             d = std::stoi(argv[i + 1]);
 
-        // If setting the number of times to anneal
+        // If setting the anneal steps
+        } else if (std::string(argv[i]) == "-i") {
+            stepsFull = std::stoi(argv[i + 1]);
+
+        // If setting the number iterations to anneal partial
         } else if (std::string(argv[i]) == "-I") {
+            stepsPartial = std::stoi(argv[i + 1]);
+
+        // If setting the number of times to anneal
+        } else if (std::string(argv[i]) == "-p") {
             maxIters = std::stoi(argv[i + 1]);
 
-		// If told to anneal everything at once
-		} else if (std::string(argv[i]) == "-a") {
-            modes.push_back("annealFull");
-
-		// If told to anneal everything one chain at a time
-		} else if (std::string(argv[i]) == "-A") {
-            modes.push_back("annealPartial");
-
-        // If told to stop early
-        } else if (std::string(argv[i]) == "-s") {
-            modes.push_back("stop");
-
-        // If told to use the check mode
-        } else if (std::string(argv[i]) == "-c") {
-            modes.push_back("check");
-
-        // If told to use the check mode per chain
-        } else if (std::string(argv[i]) == "-C") {
-            modes.push_back("checkPartial");
-
-        // If told to randomise the angles
-        } else if (std::string(argv[i]) == "-r") {
-            modes.push_back("random");
-
-        // If told to decrease the dimension
-        } else if (std::string(argv[i]) == "-D") {
-            modes.push_back("decrease");
-
-        // If told to output all the angles
-        } else if (std::string(argv[i]) == "-o") {
-            modes.push_back("output");
-
-        // If told to output all the true angles
-        } else if (std::string(argv[i]) == "-O") {
-            modes.push_back("outputTrue");
+        // If given a word argument, add it the modes
+        } else if (argv[i][0] == '-' && argv[i][1] == '-') { 
+            modes.push_back(std::string(argv[i]).substr(2));
 
 		}
 
@@ -550,6 +531,8 @@ int main(int argc, char* argv[]) {
 	if (!font.loadFromFile("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")) {
 		std::cout << "Error loading font" << std::endl;
 	}
+
+    
 
 	// Create each of the chains representing the MUBs
 	double scaling = 100.0;
@@ -603,6 +586,44 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+    // Create buttons to run the various commands
+    std::vector<sf::RectangleShape> buttons;
+    std::vector<sf::Text> buttonTexts;
+    std::vector<std::string> buttonNames = {
+                                    "output", 
+                                    "outputDeg", 
+                                    "outputTrue", 
+                                    "outputTrueDeg",
+                                    "outputVectors", 
+                                    "random", 
+                                    "check", 
+                                    "annealFull", 
+                                    "annealPartial", 
+                                    "decrease", 
+                                    "fix/unfix first angle",
+                                    "interrupt",
+                                };
+    for (int i = 0; i < buttonNames.size(); ++i) {
+
+        // Create the button
+        sf::RectangleShape button(sf::Vector2f(200, 50));
+        button.setFillColor(sf::Color::White);
+        button.setOutlineColor(sf::Color::Black);
+        button.setOutlineThickness(2.0);
+        button.setPosition(minX - scaling*2 + 10, 10 + 60 * i);
+        buttons.push_back(button);
+
+        // Create the text for the button
+        sf::Text buttonText;
+        buttonText.setFont(font);
+        buttonText.setString(buttonNames[i]);
+        buttonText.setCharacterSize(20);
+        buttonText.setFillColor(sf::Color::Black);
+        buttonText.setPosition(minX - scaling*2 + 20, 20 + 60 * i);
+        buttonTexts.push_back(buttonText);
+
+    }
+
 	// Create an empty eigen matrix
 	Eigen::MatrixXd A = Eigen::MatrixXd::Zero(std::pow(chains.size(), 2), chains.size());
 	int nextInd = 0;
@@ -628,6 +649,7 @@ int main(int argc, char* argv[]) {
 
 				// Add to the matrix
 				if (otherInd >= 0) {
+                    std::cout << "chain " << i << " + chain " << j << " = chain " << otherInd << std::endl;
 					A(nextInd, i) = 1;
 					A(nextInd, j) = 1;
 					A(nextInd, otherInd) = -1;
@@ -642,37 +664,58 @@ int main(int argc, char* argv[]) {
 	// Remove the zero rows
 	A.conservativeResize(nextInd, Eigen::NoChange);
 
-	// Flip the matrix horizontally
-	A = A.rowwise().reverse().eval();
+    // Print if it's not too big
+    if (std::max(A.rows(), A.cols()) < 20) {
+        std::cout << "Original matrix:" << std::endl;
+        std::cout << A << std::endl;
+    }
 
-	// Row reduce the matrix A using Eigen
-	Eigen::FullPivLU<Eigen::MatrixXd> lu(A);
-	Eigen::MatrixXd reducedA = lu.matrixLU().triangularView<Eigen::Upper>();
-	int rank = lu.rank();
-	reducedA.conservativeResize(rank, Eigen::NoChange);
+    // Perform row reduction
+    Eigen::MatrixXd reducedA = A;
+	for (int i=0; i<std::min(reducedA.cols(), reducedA.rows()); ++i) {
 
-	// Make sure each of the diagonals is 1
-	for (int i = 0; i < reducedA.rows(); ++i) {
-		reducedA.row(i) /= reducedA(i,i);
-	}
+        // Search for a non-zero element in this col
+        int nonZeroInd = -1;
+        Eigen::VectorXd nonZeroRow = Eigen::VectorXd::Zero(reducedA.cols());
+        for (int j = i; j < reducedA.rows(); ++j) {
+            if (std::abs(reducedA(j,i)) > 1e-10) {
+                nonZeroInd = j;
+                nonZeroRow = reducedA.row(j);
+                break;
+            }
+        }
 
-	// Make sure each of the diagonals is the only one in that column
-	for (int i=0; i<reducedA.rows(); ++i) {
-		for (int j=i+1; j<reducedA.rows(); ++j) {
-			if (abs(reducedA(i,j)) > 1e-10) {
-				reducedA.row(i) -= reducedA(i,j)*reducedA.row(j);
-			}
-		}
-	}
+        // If there is no non-zero element, skip this column
+        if (nonZeroInd == -1) {
+            continue;
+        }
+
+        // Make the corresponding row start with a one
+        reducedA.row(i) += ((1.0-reducedA(i,i)) / nonZeroRow(i)) * nonZeroRow;
+
+        // Zero all the other elements in this column
+        for (int j = 0; j < reducedA.rows(); ++j) {
+            if (j != i && std::abs(reducedA(j,i)) > 1e-10) {
+                reducedA.row(j) -= (reducedA(j,i) / nonZeroRow(i)) * nonZeroRow;
+            }
+        }
+        
+    }
+
+    // If the matrix isn't too big
+    if (std::max(reducedA.rows(), reducedA.cols()) < 20) {
+        std::cout << "Reduced matrix:" << std::endl;
+        std::cout << reducedA << std::endl;
+    }
 
     // Calculate the maximum number of non-zero elements in any column
     int maxNonZero = 0;
     int minNonZero = 1000000;
     int avgNonZero = 0;
-    for (int i = rank; i < reducedA.cols(); ++i) {
+    for (int i = 0; i < reducedA.cols(); ++i) {
         int nonZero = 0;
         for (int j = 0; j < reducedA.rows(); ++j) {
-            if (reducedA(j,i) != 0) {
+            if (std::abs(reducedA(j,i)) > 1e-10) {
                 nonZero++;
             }
         }
@@ -680,21 +723,18 @@ int main(int argc, char* argv[]) {
         minNonZero = std::min(minNonZero, nonZero);
         avgNonZero += nonZero;
     }
-    avgNonZero /= reducedA.cols() - rank;
+    avgNonZero /= reducedA.cols();
 
 	// For each row of the reduced matrix, get the first one and set the chains
-	for (int i = 0; i < reducedA.rows(); ++i) {
-		for (int j = 0; j < reducedA.cols(); ++j) {
-			if (reducedA(i,j) != 0) {
-				std::vector<std::pair<double, Chain*>> terms;
-				for (int k = j+1; k < reducedA.cols(); ++k) {
-					if (std::abs(reducedA(i,k)) > 1e-10) {
-						terms.push_back(std::make_pair(reducedA(i,k), &chains[k]));
-					}
-				}
-				chains[j].setRelation(terms);
-				break;
-			}
+	for (int i=0; i<std::min(reducedA.cols(), reducedA.rows()); ++i) {
+        if (std::abs(reducedA(i,i)) > 1e-10) {
+            std::vector<std::pair<double, Chain*>> terms;
+            for (int k = i+1; k < reducedA.cols(); ++k) {
+                if (std::abs(reducedA(i,k)) > 1e-10) {
+                    terms.push_back(std::make_pair(-reducedA(i,k), &chains[k]));
+                }
+            }
+            chains[i].setRelation(terms);
 		}
 	}
 
@@ -716,30 +756,23 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+    int numFixed = numZeroAndFixed + numNonZeroAndFixed;
+    int numFree = chains.size() - numFixed;
 
-    // Output problem info TODO guess how easy
-    Eigen::MatrixXd reducedA2 = reducedA.block(0, rank, rank, reducedA.cols() - rank);
-    for (int i=0; i<reducedA2.rows(); ++i) {
-        std::cout << reducedA2.row(i) << "   =  r(" << chains[i].getRadius() << ")" << std::endl;
-    }
+    // Output problem info
     std::cout << "dimension: " << d << std::endl;
     std::cout << "max non-zeros: " << maxNonZero << std::endl;
     std::cout << "min non-zeros: " << minNonZero << std::endl;
     std::cout << "avg non-zeros: " << avgNonZero << std::endl;
     std::cout << "we have " << chains.size() << " chains" << std::endl;
-    std::cout << rank << " are fixed" << std::endl;
-    std::cout << chains.size() - rank << " are free" << std::endl;
+    std::cout << numFixed << " are fixed" << std::endl;
+    std::cout << numFree << " are free" << std::endl;
     std::cout << numZero << " have radius zero" << std::endl;
     std::cout << "   " << numZeroAndFixed << " of these are fixed" << std::endl;
     std::cout << "   " << numZero - numZeroAndFixed << " of these are free" << std::endl;
     std::cout << chains.size() - numZero << " have radius non-zero" << std::endl;
     std::cout << "   " << numNonZeroAndFixed << " of these are fixed" << std::endl;
     std::cout << "   " << numNonZero - numNonZeroAndFixed << " of these are free" << std::endl;
-    if (d > avgNonZero) {
-        std::cout << "should be easy" << std::endl; 
-    } else {
-        std::cout << "should be hard" << std::endl; 
-    }
 
     // Start with all random angles
     for (long unsigned int i=0; i<chains.size(); ++i) {
@@ -760,18 +793,28 @@ int main(int argc, char* argv[]) {
 	sf::Vector2f lastViewPos;
 	double zoomLevel = 1.0;
 	double currentTemp = startTemp;
-    double deltaTemp = std::pow(1e-7 / startTemp, 1.0 / float(steps));
+    double deltaTempFull = std::pow(1e-7 / startTemp, 1.0 / float(stepsFull));
+    double deltaTempPartial = std::pow(1e-7 / startTemp, 1.0 / float(stepsPartial));
 	double prevObjective = 100000000.0;
     int numDone = 0;
     double checkDelta = 1.00;
     sf::Clock clock;
     int fps = 0;
     int itersPerFrame = 1;
-    std::vector<int> chainIndices = {0, 1};
+    int chainIndex = 0;
+    std::string prevMode = "none";
 
-	// Set the initial view so we can see everything
-	currentView.setCenter((minX+maxX+scaling)/2.0, (minY+maxY+scaling)/2.0);
-	window.setView(currentView);
+    // FPS and iters per draw counters
+    sf::Text fpsCounter;
+    fpsCounter.setFont(font);
+    fpsCounter.setCharacterSize(20);
+    fpsCounter.setFillColor(sf::Color::Black);
+    fpsCounter.setPosition(-180, -100);
+    sf::Text iterCounter;
+    iterCounter.setFont(font);
+    iterCounter.setCharacterSize(20);
+    iterCounter.setFillColor(sf::Color::Black);
+    iterCounter.setPosition(-180, -70);
 
 	// Start the main loop
     while (window.isOpen() || !visual) {
@@ -781,10 +824,15 @@ int main(int argc, char* argv[]) {
         clock.restart();
         fps = 1.0 / elapsed.asSeconds();
         if (fps > 10) {
-            itersPerFrame++;
-        } else if (fps < 10 && itersPerFrame > 1) {
-            itersPerFrame--;
+            itersPerFrame += 1;
+        } if (itersPerFrame > 1) {
+            itersPerFrame -= 1;
         }
+        if (modes.size() == 0) {
+            itersPerFrame = 0;
+        } 
+        fpsCounter.setString("FPS: " + std::to_string(fps));
+        iterCounter.setString("iters per frame: " + std::to_string(itersPerFrame));
 
 		// Process events
         sf::Event event;
@@ -796,6 +844,26 @@ int main(int argc, char* argv[]) {
 				bool val = chain.handleEvent(event, window);
 				somethingChanged = somethingChanged || val;
 			}
+
+            // Check for button presses
+			sf::Vector2f mousePosition = window.mapPixelToCoords(sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
+                for (int i=0; i<buttons.size(); ++i) {
+                    if (buttons[i].getGlobalBounds().contains(mousePosition)) {
+                        std::cout << "pressed button: " << buttonNames[i] << std::endl;
+                        if (buttonNames[i] == "fix/unfix first angle") {
+                            fixFirst = !fixFirst;
+                            for (auto& chain : chains) {
+                                chain.setFirstAngleFixed(fixFirst);
+                            }
+                        } else if (buttonNames[i] == "interrupt") {
+                            modes = {};
+                        } else {
+                            modes.push_back(buttonNames[i]);
+                        }
+                    }
+                }
+            }
 
 			// When the window is closed, the program ends
             if (event.type == sf::Event::Closed) {
@@ -849,12 +917,18 @@ int main(int argc, char* argv[]) {
             
         }
 
-        // 6,6,3,1 final max is 19, sqrt is 3322
-        // 6,5,3,1 final max is 9, sqrt is 3322
-
+        // Get the next mode
         std::string mode = "none";
         if (modes.size() > 0) {
             mode = modes[0];
+        }
+        if (mode != prevMode) {
+            prevMode = mode;
+            itersPerFrame = 1;
+            currentTemp = startTemp;
+            numDone = 0;
+            checkDelta = 1.0;
+            std::cout << std::endl;
         }
 
         // If told to stop
@@ -916,7 +990,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Lower the temperature
-                currentTemp *= deltaTemp;
+                currentTemp *= deltaTempFull;
                 if (currentTemp < 1e-6) {
                     break;
                 }
@@ -924,7 +998,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Per iteration output
-			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "  \r" << std::flush;
+			std::cout << "sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "       \r" << std::flush;
 
             // If we are done, remove this mode
             if (currentTemp < 1e-6) {
@@ -936,19 +1010,12 @@ int main(int argc, char* argv[]) {
         // If told to anneal little sections at once 
         } else if (mode == "annealPartial") {
 
-            // Pick a random fixed chain and the related chains
-            int chainIndex = rand() % chains.size();
-            while (!chains[chainIndex].isFixed()) {
-                chainIndex = rand() % chains.size();
-            }
-            std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
-
             // Do a bunch of iters
+            std::vector<Chain*> relatedChains = chains[chainIndex].getRelatedChains();
             double overallObjective = 0.0;
             double maxObjective = 0.0;
             double averageObjective = 0.0;
-            currentTemp = startTemp;
-            for (int iter=0; iter<steps; ++iter) {
+            for (int iter=0; iter<itersPerFrame; ++iter) {
 
                 // For each chain
                 std::vector<std::vector<double>> prevAngles(relatedChains.size());
@@ -993,13 +1060,23 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Lower the temperature
-                currentTemp *= deltaTemp;
+                currentTemp *= deltaTempPartial;
+
+                // Stop when we get to a low enough temperature
+                if (currentTemp < 1e-6) {
+                    numDone++;
+                    currentTemp = startTemp;
+                    chainIndex = rand() % chains.size();
+                    while (!chains[chainIndex].isFixed()) {
+                        chainIndex = rand() % chains.size();
+                    }
+                    break;
+                }
                 
             }
 
             // Per iteration output
-            numDone++;
-            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "\r" << std::flush;
+            std::cout << numDone << "  sqr=" << overallObjective << "  avg=" << averageObjective << "  max=" << maxObjective << "  tmp=" << currentTemp << "        \r" << std::flush;
 
             // If we're done
             if (numDone > maxIters) {
@@ -1034,11 +1111,11 @@ int main(int argc, char* argv[]) {
             // If we're done
             modes.erase(modes.begin());
 
-        // If decreasing the dimension by one 
+        // If decreasing the dimension TODO
         } else if (mode == "decrease") {
 
             // Each time we're stable, reduce the length a bit
-            if (checkDelta < 1e-10) {
+            if (checkDelta < 1e-6) {
                 checkDelta = 1.0;
 
                 // Adjust the lengths
@@ -1047,7 +1124,7 @@ int main(int argc, char* argv[]) {
                     std::vector<double> lengths = chain.getVectorLengths();
                     double deltaL = 0.5;
                     for (int i=0; i<lengths.size(); ++i) {
-                        if (i == 1) {
+                        if (i >= d) {
                             if (lengths[i] >= deltaL) {
                                 lengths[i] -= deltaL;
                             } else {
@@ -1055,19 +1132,20 @@ int main(int argc, char* argv[]) {
                                 numDone++;
                             }
                         } else {
-                            if (lengths[i] <= scaling*sqrt(d-1)/(d-1) - deltaL) {
-                                lengths[i] += deltaL;
-                            } else {
-                                lengths[i] = scaling*sqrt(d-1)/(d-1);
-                                numDone++;
-                            }
+                            //if (lengths[i] <= scaling*sqrt(d-1)/(d-1) - deltaL) {
+                                //lengths[i] += deltaL;
+                            //} else {
+                                //lengths[i] = scaling*sqrt(d-1)/(d-1);
+                                //numDone++;
+                            //}
                         }
                     }
                     chain.setVectorLengths(lengths);
                 }
 
                 // When all the chains are the new size
-                if (numDone == chains.size()*d) {
+                //if (numDone == chains.size()*d) {
+                if (numDone == chains.size()-d) {
                     modes.erase(modes.begin());
                 }
 
@@ -1158,7 +1236,7 @@ int main(int argc, char* argv[]) {
             for (int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
-            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  itrs=" << itersPerFrame << "     \r" << std::flush;
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "     \r" << std::flush;
 
             // Do a few iterations per display frame
             for (int j=0; j<itersPerFrame; j++) {
@@ -1231,113 +1309,71 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-        // If using the check mode (checking one chain in each direction)
-        // # TODO
-        } else if (mode == "checkPartial") {
-
-            // If we've converged, chain chain
-            if (checkDelta < 1e-30) {
-                checkDelta = 1.0;
-                for (int i=0; i<chainIndices.size(); ++i) {
-                    chainIndices[i] = (chainIndices[i] + 1) % chains.size();
-                    while (chains[chainIndices[i]].isFixed()) {
-                        chainIndices[i] = (chainIndices[i] + 1) % chains.size();
-                    }
-                }
-            }
-
-            // Calculate the objective
-            double bestObjective = getObjective(chains);
-            double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
-                maxDiff = std::max(maxDiff, chains[i].getObjective());
-            }
-            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  itrs=" << itersPerFrame << "     \r" << std::flush;
-
-            // Do a few iterations per display frame
-            for (int j=0; j<itersPerFrame; j++) {
-
-                // Keep track of each time we update the best objective
-                int numChanges = 0;
-
-                // For each non-fixed chain
-                for (auto j : chainIndices) {
-                //for (int j=0; j<chains.size(); ++j) {
-                    //int j = chainIndex;
-                    //if (chains[j].isFixed()) {
-                        //continue;
-                    //}
-
-                    // Check the effect of moving each direction
-                    std::vector<double> angles = chains[j].getAngles();
-                    for (int k=0; k<angles.size(); ++k) {
-                        if (k == 0 && fixFirst) {
-                            continue;
-                        }
-
-                        // Save the old angle
-                        double oldAngle = angles[k];
-
-                        // Check plus checkDelta
-                        angles[k] += checkDelta;
-                        chains[j].setAngles(angles);
-                        double objective = getObjective(chains);
-                        if (objective >= bestObjective) {
-                            angles[k] = oldAngle;
-                        } else {
-                            bestObjective = objective;
-                            numChanges++;
-                            continue;
-                        }
-
-                        // Check minus checkDelta
-                        angles[k] -= checkDelta;
-                        chains[j].setAngles(angles);
-                        objective = getObjective(chains);
-                        if (objective >= bestObjective) {
-                            angles[k] = oldAngle;
-                        } else {
-                            bestObjective = objective;
-                            numChanges++;
-                            continue;
-                        }
-
-                    }
-                    chains[j].setAngles(angles);
-
-                }
-
-                // If no changes, decrease checkDelta
-                if (numChanges == 0) {
-                    checkDelta *= 0.1;
-                    if (checkDelta < 1e-30) {
-                        break;
-                    }
-                }
-
-            }
-
-            // Update the visuals
-            if (visual) {
-                for (long unsigned int i=0; i<chains.size(); ++i) {
-                    chains[i].updatePointsAndLines();
-                }
-            }
-
-        // If told to output all angles
-        } else if (mode == "output") {
+        // If told to output all angles in degrees
+        } else if (mode == "output" || mode == "outputDeg") {
             
             // Set the output precision
             std::cout << std::setprecision(10);
 
             // Output the angles of each chain as a new line
-            for (auto& chain : chains) {
-                std::vector<double> angles = chain.getAngles();
+            std::vector<double> uniqueAngles;
+            int numUnique = 0;
+            int numTotal = 0;
+            for (int i=0; i<chains.size(); ++i) {
+                std::vector<double> angles = chains[i].getAngles();
+                for (auto& angle : angles) {
+                    while (angle < 0.0) {
+                        angle += 2.0 * M_PI;
+                    }
+                    while (angle >= 2.0 * M_PI) {
+                        angle -= 2.0 * M_PI;
+                    }
+                    if (mode == "outputDeg") {
+                        angle *= 180.0 / M_PI;
+                    }
+                }
+                std::pair<int, int> vecIndices = chains[i].getVecIndices();
+                std::cout << "chain " << i << " (" << vecIndices.first << "," << vecIndices.second << "): ";
                 for (auto& angle : angles) {
                     std::cout << angle << " ";
                 }
                 std::cout << std::endl;
+                for (auto& angle : angles) {
+                    numTotal++;
+                    bool found = false;
+                    for (auto& uniqueAngle : uniqueAngles) {
+                        if ((mode == "outputDeg" && std::abs(angle - uniqueAngle) < 0.1) || (mode == "output" && std::abs(angle - uniqueAngle) < 0.001)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        numUnique++;
+                        uniqueAngles.push_back(angle);
+                    }
+                }
             }
+            std::cout << std::setprecision(5);
+            std::cout << "num angles: " << numTotal << std::endl;
+            std::cout << "num unique angles: " << numUnique << std::endl;
+            std::cout << "unique angles: ";
+            for (auto& angle : uniqueAngles) {
+                std::cout << angle << " ";
+            }
+
+            // output the difference between each pair of angles
+            //Eigen::MatrixXd angleDiffs(numUnique, numUnique);
+            //for (int i=0; i<numUnique; ++i) {
+                //for (int j=0; j<numUnique; ++j) {
+                    //angleDiffs(i, j) = std::abs(uniqueAngles[i] - uniqueAngles[j]);
+                    //if (angleDiffs(i, j) > M_PI) {
+                        //angleDiffs(i, j) = 2.0 * M_PI - angleDiffs(i, j);
+                    //}
+                //}
+            //}
+            //std::cout << std::endl << "angle diffs:" << std::endl;
+            //std::cout << angleDiffs << std::endl;
+            //std::cout << std::endl;
 
             // Reset the precision
             std::cout << std::setprecision(5);
@@ -1346,12 +1382,102 @@ int main(int argc, char* argv[]) {
             modes.erase(modes.begin());
 
         // If told to output the true angles of the vectors
-        } else if (mode == "outputTrue") {
+        } else if (mode == "outputTrue" || mode == "outputTrueDeg" || mode == "outputVectors") {
             
             // Set the output precision
             std::cout << std::setprecision(10);
 
-            // Calculate the true angles TODO
+            // Get various numbers
+            int numVectors = 0;
+            for (int i=1; i<N.size(); i++) {
+                numVectors += N[i];
+            }
+            int numChains = chains.size();
+            int numAnglesPer = N[0];
+            std::vector<std::vector<double>> trueAngles(numVectors, std::vector<double>(numAnglesPer, 0.0));
+
+            // For each angle
+            for (int i=0; i<N[0]; i++) {
+
+                // For each chain, we have chain_12 = theta_1 + theta_2
+                for (int j=0; j<chains.size(); j++) {
+                    std::pair<int, int> vecIndices = chains[j].getVecIndices();
+                    double angle = chains[j].getAngles()[i];
+                    while (angle > 2.0*M_PI) {
+                        angle -= 2.0*M_PI;
+                    }
+                    while (angle < 0.0) {
+                        angle += 2.0*M_PI;
+                    }
+                    if (vecIndices.second == 0) {
+                        trueAngles[vecIndices.first][i] = angle;
+                    } else if (vecIndices.first == 0) {
+                        trueAngles[vecIndices.second][i] = -angle;
+                    }
+                }
+
+            }
+
+            // Output each angle
+            if (mode == "outputTrue") {
+                for (int i=0; i<numVectors; i++) {
+                    std::cout << "vector " << i << ": ";
+                    for (int j=0; j<numAnglesPer; j++) {
+                        std::cout << trueAngles[i][j] << " ";
+                    }
+                    std::cout << std::endl;
+                }
+            } else if (mode == "outputTrueDeg") {
+                for (int i=0; i<numVectors; i++) {
+                    std::cout << "vector " << i << ": ";
+                    for (int j=0; j<numAnglesPer; j++) {
+                        std::cout << trueAngles[i][j] * 180.0 / M_PI << " ";
+                    }
+                    std::cout << std::endl;
+                }
+            } else if (mode == "outputVectors") {
+                std::vector<std::vector<std::complex<double>>> trueVectors(numVectors, std::vector<std::complex<double>>(numAnglesPer));
+                for (int i=0; i<numVectors; i++) {
+                    std::cout << "vector " << i << ": ";
+                    for (int j=0; j<numAnglesPer; j++) {
+                        double coeff = 1.0 / std::sqrt(d);
+                        trueVectors[i][j] = coeff * std::exp(std::complex<double>(0.0, trueAngles[i][j]));
+                        std::cout << trueVectors[i][j] << " ";
+                    }
+                    std::cout << std::endl;
+                }
+
+                // Calculate all the inner products (gram matrix)
+                Eigen::MatrixXd gramMatrix(numVectors, numVectors);
+                for (int i=0; i<numVectors; i++) {
+                    for (int j=0; j<numVectors; j++) {
+                        std::complex<double> inner = 0.0;
+                        for (int k=0; k<numAnglesPer; k++) {
+                            inner += std::conj(trueVectors[i][k]) * trueVectors[j][k];
+                        }
+                        gramMatrix(i, j) = std::abs(inner);
+                        if (gramMatrix(i, j) < 1e-10) {
+                            gramMatrix(i, j) = 0.0;
+                        }
+                    }
+                }
+                std::cout << std::setprecision(5);
+                std::cout << "Gram matrix:" << std::endl;
+                std::cout << gramMatrix << std::endl;
+
+                // Check the rank of these vectors TODO
+                //Eigen::MatrixXcd vecsAsMatrix(numVectors, numAnglesPer);
+                //for (int i=0; i<numVectors; i++) {
+                    //for (int j=0; j<numAnglesPer; j++) {
+                        //vecsAsMatrix(i, j) = trueVectors[i][j];
+                    //}
+                //}
+                //std::cout << "Vectors as matrix:" << std::endl;
+                //std::cout << vecsAsMatrix << std::endl;
+                //Eigen::FullPivLU<Eigen::MatrixXcd> lu(vecsAsMatrix);
+                //std::cout << "Rank: " << lu.rank() << std::endl;
+
+            }
 
             // Reset the precision
             std::cout << std::setprecision(5);
@@ -1372,6 +1498,12 @@ int main(int argc, char* argv[]) {
             for (auto& chain : chains) {
                 chain.draw(window, font);
             }
+            for (int i=0; i<buttons.size(); ++i) {
+                window.draw(buttons[i]);
+                window.draw(buttonTexts[i]);
+            }
+            window.draw(fpsCounter);
+            window.draw(iterCounter);
             window.display();
         }
 
