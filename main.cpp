@@ -9,6 +9,7 @@ class Chain {
 private:
 
 	// Things needed regarding of visualisation
+    int chainIndex = 0;
 	int numVectors = 0;
     int dragging = -1;
 	double radius = 0;
@@ -20,6 +21,10 @@ private:
 	std::pair<double,double> startPosition;
 	std::pair<int,int> vecIndices;
 	std::vector<std::pair<double, Chain*>> relation;
+	std::vector<std::pair<double, int>> relationInds;
+    double finalX = 0;
+    double finalY = 0;
+    double finalDist = 0;
 
 	// Things only relevant for visualisation
 	int lineThickness = 5;
@@ -39,6 +44,16 @@ public:
     // Set whether the first angle should be fixed
     void setFirstAngleFixed(bool fixFirst_) {
         fixFirst = fixFirst_;
+    }
+
+    // Set the index
+    void setIndex(int chainIndex_) {
+        chainIndex = chainIndex_;
+    }
+
+    // Get the index
+    int getIndex() {
+        return chainIndex;
     }
 
 	// Update the points and lines based on the angles
@@ -65,8 +80,9 @@ public:
 	}
 
 	// Set how this chain is defined related to the others
-	void setRelation(std::vector<std::pair<double, Chain*>> relation_) {
+	void setRelation(std::vector<std::pair<double, Chain*>> relation_, std::vector<std::pair<double, int>> relationInds_) {
 		relation = relation_;
+		relationInds = relationInds_;
 
 		// Also change the colour to make it more obvious
 		for (int i = 0; i < points.size(); ++i) {
@@ -166,18 +182,38 @@ public:
 		return relation.size() != 0;
 	}
 
+    // Would changing a certain angle of a certain chain affect the objective?
+    double getGradient(int chainDiff, int angleDiff) {
+
+        // If this chain is the one
+        if (chainIndex == chainDiff) {
+            return 2.0 * vectorLengths[angleDiff] * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+        } 
+
+        // Check if this chainDiff is part of the relation
+        for (int i=0; i<relationInds.size(); ++i) {
+            if (relationInds[i].second == chainDiff) {
+                return 2.0 * vectorLengths[angleDiff] * relationInds[i].first * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+            }
+        }
+
+        // Otherwise that chain and angle has no effect on this chain
+        return 0.0;
+
+    }
+
 	// Update the objective
 	void updateObjective() {
 
 		// How close the last point is versus the circle radius
-		double finalX = 0;
-		double finalY = 0;
+		finalX = 0;
+		finalY = 0;
 		for (int i=0; i<angles.size(); ++i) {
 			finalX += vectorLengths[i] * sin(angles[i]);
 			finalY -= vectorLengths[i] * cos(angles[i]);
 		}
-		double finalDist = sqrt(finalX * finalX + finalY * finalY);
-		objective = abs(finalDist - radius);
+		finalDist = sqrt(finalX * finalX + finalY * finalY);
+		objective = std::pow(finalDist - radius, 2);
 
 		// Set the label text
 		text.setString(std::to_string(objective));
@@ -400,10 +436,10 @@ double getObjective(std::vector<Chain>& chains) {
         chains[i].updateObjective();
     }
 
-    // The objective is the sum of squares of the individual objectives
+    // The objective is the sum of the individual objectives
     double objective = 0;
     for (int i = 0; i < chains.size(); ++i) {
-        objective += std::pow(chains[i].getObjective(), 2);
+        objective += chains[i].getObjective();
     }
 
     // Return the objective
@@ -411,8 +447,40 @@ double getObjective(std::vector<Chain>& chains) {
 
 }
 
-// Given a chain list, update them all and return the objective, giving a bonus to the angles that are allowed
-double getObjective(std::vector<Chain>& chains, std::vector<double> allowedAngles) {
+// Get the objective without updating anything
+double getObjectiveNoUpdate(std::vector<Chain>& chains) {
+
+    // The objective is the sum of the individual objectives
+    double objective = 0;
+    for (int i = 0; i < chains.size(); ++i) {
+        objective += chains[i].getObjective();
+    }
+
+    // Return the objective
+    return objective;
+
+} 
+
+// Given a list of chains, get the angles
+std::vector<double> getAngles(std::vector<Chain>& chains) {
+
+    // Get the angles from each chain
+    std::vector<double> angles;
+    for (int i = 0; i < chains.size(); ++i) {
+        if (chains[i].isFixed()) {
+            continue;
+        }
+        std::vector<double> chainAngles = chains[i].getAngles();
+        angles.insert(angles.end(), chainAngles.begin(), chainAngles.end());
+    }
+
+    // Return the angles
+    return angles;
+
+}
+
+// Get the gradient of the objective at the current point
+std::vector<double> getGradient(std::vector<Chain>& chains, bool fixFirst) {
 
     // Update all the chains
     for (int i = 0; i < chains.size(); ++i) {
@@ -420,34 +488,46 @@ double getObjective(std::vector<Chain>& chains, std::vector<double> allowedAngle
         chains[i].updateObjective();
     }
 
-    // The objective is the sum of squares of the individual objectives
-    double objective = 0;
-    for (int i = 0; i < chains.size(); ++i) {
-        objective += std::pow(chains[i].getObjective(), 2);
-        std::vector<double> angles = chains[i].getAngles();
-        for (int j = 0; j < angles.size(); ++j) {
-            while (angles[j] < 0) {
-                angles[j] += 2 * M_PI;
-            }
-            while (angles[j] > 2 * M_PI) {
-                angles[j] -= 2 * M_PI;
-            }
-            double bestDistance = 10000000;
-            for (int k = 0; k < allowedAngles.size(); ++k) {
-                double distance = std::abs(angles[j] - allowedAngles[k]);
-                if (distance > M_PI) {
-                    distance = 2 * M_PI - distance;
-                }
-                if (distance < bestDistance) {
-                    bestDistance = distance;
+    // Differentiate by each angle in each chain
+    std::vector<double> grad;
+    int numAnglesPerChain = chains[0].getAngles().size();
+    int ind = 0;
+    for (int chainInd = 0; chainInd < chains.size(); chainInd++) {
+        if (chains[chainInd].isFixed()) {
+            continue;
+        }
+        for (int angleInd = 0; angleInd < numAnglesPerChain; angleInd++) {
+
+            // Differentiate each chain by this angle
+            double gradPerAngle = 0;
+            if (!(fixFirst && angleInd == 0)) {
+                for (int i = 0; i < chains.size(); ++i) {
+                    gradPerAngle += chains[i].getGradient(chainInd, angleInd);
                 }
             }
-            objective += std::pow(bestDistance*10, 2);
+            grad.push_back(gradPerAngle);
+
         }
     }
 
     // Return the objective
-    return objective;
+    return grad;
+
+}
+
+// Given a list of chains, set the angles
+void setAngles(std::vector<Chain>& chains, std::vector<double> angles) {
+
+    // Set the angles for each chain
+    int index = 0;
+    for (int i = 0; i < chains.size(); ++i) {
+        if (chains[i].isFixed()) {
+            continue;
+        }
+        std::vector<double> chainAngles(angles.begin() + index, angles.begin() + index + chains[i].getAngles().size());
+        chains[i].setAngles(chainAngles);
+        index += chains[i].getAngles().size();
+    }
 
 }
 
@@ -503,7 +583,6 @@ int main(int argc, char* argv[]) {
             std::cout << "  --annealPartial    Anneal each chain one at a time" << std::endl;
             std::cout << "  --random           Randomise the angles" << std::endl;
             std::cout << "  --check            Check each chain in each direction" << std::endl;
-            std::cout << "  --discrete         Optimize over a finite set of angles" << std::endl;
             std::cout << "  --output           Output all angles in radians" << std::endl;
             std::cout << "  --outputDeg        Output all angles in degrees" << std::endl;
             std::cout << "  --outputTrue       Output the true angles" << std::endl;
@@ -628,6 +707,11 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+    // Assign an index to each chain
+    for (int i = 0; i < chains.size(); ++i) {
+        chains[i].setIndex(i);
+    }
+
     // Create buttons to run the various commands
     std::vector<sf::RectangleShape> buttons;
     std::vector<sf::Text> buttonTexts;
@@ -640,8 +724,8 @@ int main(int argc, char* argv[]) {
                                     "random", 
                                     "check", 
                                     "check2", 
-                                    "discrete", 
                                     "minima", 
+                                    "gradient", 
                                     "annealFull", 
                                     "annealPartial", 
                                     "decrease", 
@@ -774,12 +858,14 @@ int main(int argc, char* argv[]) {
 	for (int i=0; i<std::min(reducedA.cols(), reducedA.rows()); ++i) {
         if (std::abs(reducedA(i,i)) > 1e-10) {
             std::vector<std::pair<double, Chain*>> terms;
+            std::vector<std::pair<double, int>> termsInds;
             for (int k = i+1; k < reducedA.cols(); ++k) {
                 if (std::abs(reducedA(i,k)) > 1e-10) {
                     terms.push_back(std::make_pair(-reducedA(i,k), &chains[k]));
+                    termsInds.push_back(std::make_pair(-reducedA(i,k), k));
                 }
             }
-            chains[i].setRelation(terms);
+            chains[i].setRelation(terms, termsInds);
 		}
 	}
 
@@ -831,7 +917,7 @@ int main(int argc, char* argv[]) {
         chains[i].update();
     }
 
-	// Vars used for event management
+	// Global vars
 	bool draggingBackground = false;
 	sf::Vector2i lastMousePos;
 	sf::View currentView = window.getView();
@@ -849,6 +935,12 @@ int main(int argc, char* argv[]) {
     int chainIndex = 0;
     std::string prevMode = "none";
     std::vector<double> allowedAngles;
+    std::vector<double> bestMinimaAngles;
+    double bestMinimaValue = 100000;
+    std::vector<std::vector<double>> anglesToTest;
+    int angleIndex = 0;
+    double delMinima = 10.0;
+    double alpha = 0.1;
 
     // FPS and iters per draw counters
     sf::Text fpsCounter;
@@ -974,6 +1066,7 @@ int main(int argc, char* argv[]) {
             currentTemp = startTemp;
             numDone = 0;
             checkDelta = 3.0;
+            alpha = 0.1;
             std::cout << std::endl;
         }
 
@@ -1478,28 +1571,8 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-        // Optimise to find local minima, then following the gradient of the minima TODO
-        } else if (mode == "minima") {
-
-            std::vector<double> currentAngles = getAngles(chains);
-
-            for (int j=0; j<100; j++) {
-
-                // Pick a point nearby
-                double del = 0.1;
-                std::vector<double> testAngles = currentAngles;
-                for (int i=0; i<testAngles.size(); i++) {
-                    testAngles[i] += del;
-                }
-
-                // Gradient descent on this point
-
-                // If the local minima is lower than the current minima, move to it
-
-            }
-
-            std::vector<std::vector<double>> angleSetsToTest;
-            std::vector<double> angleTestResults;
+        // Perform gradient descent
+        } else if (mode == "gradient") {
 
             // Calculate the objective
             double bestObjective = getObjective(chains);
@@ -1507,7 +1580,111 @@ int main(int argc, char* argv[]) {
             for (int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
-            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "     \r" << std::flush;
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  alpha=" << alpha << "     \r" << std::flush;
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Get the gradient
+                std::vector<double> currentAngles = getAngles(chains);
+                std::vector<double> gradient = getGradient(chains, fixFirst);
+                double newObj = getObjectiveNoUpdate(chains);
+
+                // Get the mag of the gradient
+                double mag = 0.0;
+                for (int i=0; i<gradient.size(); ++i) {
+                    mag += gradient[i] * gradient[i];
+                }
+                mag = sqrt(mag);
+                for (int i=0; i<gradient.size(); ++i) {
+                    gradient[i] /= mag;
+                }
+
+                if (newObj > bestObjective) {
+                    alpha *= 0.8;
+                } else {
+                    bestObjective = newObj;
+                }
+
+                // Update the angles based on this
+                for (int i=0; i<currentAngles.size(); ++i) {
+                    currentAngles[i] -= gradient[i] * alpha;
+                }
+                setAngles(chains, currentAngles);
+
+                // Stop when the gradient is nothing
+                if (alpha < 1e-10) {
+                    modes.erase(modes.begin());
+                    break;
+                }
+
+            }
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // Optimise to find local minima, then following the gradient of the minima
+        } else if (mode == "minima") {
+
+            // If we haven't set the best minima, assume the current point
+            if (bestMinimaAngles.size() == 0) {
+                bestMinimaAngles = getAngles(chains);
+            }
+
+            // Populate the list of angles to test
+            if (anglesToTest.size() == 0) {
+
+                // For now just try each angle in each direction
+                for (int i=0; i<100; i++) {
+
+                    // Generate a random vector
+                    std::vector<double> randVec;
+                    for (int j=0; j<bestMinimaAngles.size(); ++j) {
+                        randVec.push_back(rand() / double(RAND_MAX) * 2.0 * M_PI);
+                    }
+
+                    // Normalise the vector to have a mag of delMinima
+                    double norm = 0.0;
+                    for (int j=0; j<randVec.size(); ++j) {
+                        norm += randVec[j] * randVec[j];
+                    }
+                    norm = sqrt(norm);
+                    for (int j=0; j<randVec.size(); ++j) {
+                        randVec[j] *= delMinima / norm;
+                    }
+
+                    // Add the test angles
+                    std::vector<double> testAngles = bestMinimaAngles;
+                    for (int j=0; j<randVec.size(); ++j) {
+                        testAngles[j] += randVec[j];
+                    }
+                    anglesToTest.push_back(testAngles);
+
+                }
+
+                // Set the current angles to the first in the list
+                angleIndex = 0;
+                setAngles(chains, anglesToTest[angleIndex]);
+
+            }
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            double maxDiff = 0.0;
+            for (int i=0; i<chains.size(); ++i) {
+                maxDiff = std::max(maxDiff, chains[i].getObjective());
+            }
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  ind=" << angleIndex << "  del=" << delMinima << "  bst=" << bestMinimaValue << "     \r" << std::flush;
+
+            // Stop if we have something close
+            if (bestObjective < 1) {
+                modes.erase(modes.begin());
+                continue;
+            }
 
             // Do a few iterations per display frame
             for (int j=0; j<itersPerFrame; j++) {
@@ -1564,11 +1741,30 @@ int main(int argc, char* argv[]) {
                 if (numChanges == 0) {
                     checkDelta *= 0.1;
 
-                    // If it's small enough, stop
-                    if (checkDelta < 1e-30) {
+                    // If it's small enough, stop this with opt
+                    if (checkDelta < 1e-4) {
                         checkDelta = 3.0;
-                        modes.erase(modes.begin());
+
+                        // If we've found a new minima, start again from there
+                        if (bestObjective < bestMinimaValue - 0.1) {
+                            bestMinimaValue = bestObjective;
+                            bestMinimaAngles = getAngles(chains);
+                            delMinima = 10.0;
+                            anglesToTest.clear();
+
+                        // Otherwise try a different direction
+                        } else {
+                            angleIndex++;
+                            if (angleIndex >= anglesToTest.size()) {
+                                delMinima *= 10;
+                                anglesToTest.clear();
+                            } else {
+                                setAngles(chains, anglesToTest[angleIndex]);
+                            }
+                        }
+
                         break;
+
                     }
                 }
 
@@ -1580,103 +1776,7 @@ int main(int argc, char* argv[]) {
                     chains[i].updatePointsAndLines();
                 }
             }
-        // Optimise over a discrete list of angles
-        } else if (mode == "discrete") {
 
-            // If we haven't got our list of allowed angles yet, get it
-            if (allowedAngles.size() == 0) {
-
-                // Add the divisions of 2pi
-                for (int i=0; i<d; ++i) {
-                    allowedAngles.push_back((2.0 * M_PI * i) / d);
-                }
-
-                std::cout << "Allowed angles: ";
-                for (int i=0; i<allowedAngles.size(); ++i) {
-                    std::cout << allowedAngles[i] << " ";
-                }
-                std::cout << std::endl;
-
-            }
-
-            // Calculate the objective
-            double bestObjective = getObjective(chains, allowedAngles);
-            double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
-                maxDiff = std::max(maxDiff, chains[i].getObjective());
-            }
-            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "     \r" << std::flush;
-
-            // Do a few iterations per display frame
-            for (int j=0; j<itersPerFrame; j++) {
-
-                // Keep track of each time we update the best objective
-                int numChanges = 0;
-
-                // For each non-fixed chain
-                for (int j=0; j<chains.size(); ++j) {
-                    if (chains[j].isFixed()) {
-                        continue;
-                    }
-
-                    // Check the effect of moving each direction
-                    std::vector<double> angles = chains[j].getAngles();
-                    for (int k=0; k<angles.size(); ++k) {
-                        if (k == 0 && fixFirst) {
-                            continue;
-                        }
-
-                        // Save the old angle
-                        double oldAngle = angles[k];
-
-                        // Check plus checkDelta
-                        angles[k] += checkDelta;
-                        chains[j].setAngles(angles);
-                        double objective = getObjective(chains, allowedAngles);
-                        if (objective >= bestObjective) {
-                            angles[k] = oldAngle;
-                        } else {
-                            bestObjective = objective;
-                            numChanges++;
-                            continue;
-                        }
-
-                        // Check minus checkDelta
-                        angles[k] -= checkDelta;
-                        chains[j].setAngles(angles);
-                        objective = getObjective(chains, allowedAngles);
-                        if (objective >= bestObjective) {
-                            angles[k] = oldAngle;
-                        } else {
-                            bestObjective = objective;
-                            numChanges++;
-                            continue;
-                        }
-
-                    }
-                    chains[j].setAngles(angles);
-
-                }
-
-                // If no changes, decrease checkDelta
-                if (numChanges == 0) {
-                    checkDelta *= 0.1;
-                    if (checkDelta < 1e-30) {
-                        checkDelta = 3.0;
-                        modes.erase(modes.begin());
-                        break;
-                    }
-                }
-
-            }
-
-            // Update the visuals
-            if (visual) {
-                for (long unsigned int i=0; i<chains.size(); ++i) {
-                    chains[i].updatePointsAndLines();
-                }
-            }
-            
         // If told to output all angles in degrees
         } else if (mode == "output" || mode == "outputDeg") {
             
