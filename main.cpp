@@ -588,6 +588,8 @@ int main(int argc, char* argv[]) {
             std::cout << "  --outputTrue       Output the true angles" << std::endl;
             std::cout << "  --outputTrueDeg    Output the true angles in degrees" << std::endl;
             std::cout << "  --outputVectors    Output the true MU vectors" << std::endl;
+            std::cout << "  --gradient         Perform gradient descent" << std::endl;
+            std::cout << "  --shotgun          Perform gradient descent from many points" << std::endl;
             std::cout << "  --minima           Travel in the direction of decreasing local minima" << std::endl;
             std::cout << "  --decrease         Decrease the dimension by one, adiabatically" << std::endl;
             std::cout << "  --stop             Stop, closing the window" << std::endl;
@@ -630,6 +632,19 @@ int main(int argc, char* argv[]) {
 
 	}
 
+    // If there's a stop, move it to the end
+    bool wasStop = false;
+    for (int i = 0; i < modes.size(); ++i) {
+        if (modes[i] == "stop") {
+            modes.erase(modes.begin() + i);
+            wasStop = true;
+            i--;
+        }
+    }
+    if (wasStop) {
+        modes.push_back("stop");
+    }
+
     // If d hasn't been set, set it to the dimension of the first basis
     if (d == -1) {
         d = N[0];
@@ -645,15 +660,16 @@ int main(int argc, char* argv[]) {
         windowHeight = 1;
     }
     sf::RenderWindow window(sf::VideoMode(windowWidth, windowHeight), "Visual MUBs", sf::Style::Default, settings);
-	window.setFramerateLimit(60);
+
+    if (visual) {
+        window.setFramerateLimit(60);
+    }
 
 	// Load the font
 	sf::Font font;
 	if (!font.loadFromFile("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")) {
 		std::cout << "Error loading font" << std::endl;
 	}
-
-    
 
 	// Create each of the chains representing the MUBs
 	double scaling = 100.0;
@@ -726,6 +742,7 @@ int main(int argc, char* argv[]) {
                                     "check2", 
                                     "minima", 
                                     "gradient", 
+                                    "shotgun", 
                                     "annealFull", 
                                     "annealPartial", 
                                     "decrease", 
@@ -778,7 +795,9 @@ int main(int argc, char* argv[]) {
 
 				// Add to the matrix
 				if (otherInd >= 0) {
-                    std::cout << "chain " << i << " + chain " << j << " = chain " << otherInd << std::endl;
+                    if (chains.size() < 10) {
+                        std::cout << "chain " << i << " + chain " << j << " = chain " << otherInd << std::endl;
+                    }
 					A(nextInd, i) = 1;
 					A(nextInd, j) = 1;
 					A(nextInd, otherInd) = -1;
@@ -941,6 +960,8 @@ int main(int argc, char* argv[]) {
     int angleIndex = 0;
     double delMinima = 10.0;
     double alpha = 0.1;
+    int numPerformed = 0;
+    int numConverged = 0;
 
     // FPS and iters per draw counters
     sf::Text fpsCounter;
@@ -962,7 +983,7 @@ int main(int argc, char* argv[]) {
         clock.restart();
         fps = 1.0 / elapsed.asSeconds();
         if (fps > 10) {
-            itersPerFrame += 1;
+            itersPerFrame += 5;
         } else if (itersPerFrame > 1) {
             itersPerFrame -= 1;
         }
@@ -1067,6 +1088,9 @@ int main(int argc, char* argv[]) {
             numDone = 0;
             checkDelta = 3.0;
             alpha = 0.1;
+            numPerformed = 0;
+            numConverged = 0;
+            delMinima = 10.0;
             std::cout << std::endl;
         }
 
@@ -1560,6 +1584,83 @@ int main(int argc, char* argv[]) {
                         modes.erase(modes.begin());
                         break;
                     }
+                }
+
+            }
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // Test many random starts followed by gradient descent TODO
+        } else if (mode == "shotgun") {
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            std::cout << "sqr=" << bestObjective << "  alp=" << alpha << "  con= " << numConverged << " / " << numPerformed << "  " << chains.size() << " " << numFree << " " << numFree*d << "     \r" << std::flush;
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Get the gradient
+                std::vector<double> currentAngles = getAngles(chains);
+                std::vector<double> gradient = getGradient(chains, fixFirst);
+                double newObj = getObjectiveNoUpdate(chains);
+
+                // Normalize the gradient
+                double mag = 0.0;
+                for (int i=0; i<gradient.size(); ++i) {
+                    mag += gradient[i] * gradient[i];
+                }
+                mag = sqrt(mag);
+                for (int i=0; i<gradient.size(); ++i) {
+                    gradient[i] /= mag;
+                }
+
+                // Check if we need to decrease alpha
+                if (std::isnan(newObj) || newObj > bestObjective || std::abs(newObj - bestObjective) < 1e-10) {
+                    alpha *= 0.8;
+                } else {
+                    bestObjective = newObj;
+                }
+
+                // Update the angles based on this
+                for (int i=0; i<currentAngles.size(); ++i) {
+                    currentAngles[i] -= gradient[i] * alpha;
+                }
+                setAngles(chains, currentAngles);
+
+                // Stop when the gradient is nothing
+                if (alpha < 1e-10) {
+
+                    // Keep track of the successes versus attempts
+                    if (bestObjective < 1e-2) {
+                        numConverged++;
+                    }
+                    numPerformed++;
+                    std::cout << "sqr=" << bestObjective << "  alp=" << alpha << "  con= " << numConverged << " / " << numPerformed << "  " << chains.size() << " " << numFree << " " << numFree*d << "     \n" << std::flush;
+                    if (numPerformed >= 1000) {
+                        modes.erase(modes.begin());
+                        break;
+                    }
+
+                    // Otherwise start again with random angles
+                    alpha = 0.1;
+                    bestObjective = 1e10;
+                    for (auto& chain : chains) {
+                        std::vector<double> angles = chain.getAngles();
+                        for (int j=0; j<angles.size(); ++j) {
+                            angles[j] = (rand() / (double)RAND_MAX) * 2.0 * M_PI;
+                        }
+                        if (fixFirst) {
+                            angles[0] = 0.0;
+                        }
+                        chain.setAngles(angles);
+                    }
+
                 }
 
             }
