@@ -962,6 +962,9 @@ int main(int argc, char* argv[]) {
     double alpha = 0.1;
     int numPerformed = 0;
     int numConverged = 0;
+    int tries = 0;
+    double totalObjective = 0;
+    double totalObjectiveLog = 0;
 
     // FPS and iters per draw counters
     sf::Text fpsCounter;
@@ -1600,6 +1603,7 @@ int main(int argc, char* argv[]) {
 
             // Calculate the objective
             double bestObjective = getObjective(chains);
+            std::cout << std::setprecision(4);
             std::cout << "sqr=" << bestObjective << "  alp=" << alpha << "  con= " << numConverged << " / " << numPerformed << "  " << chains.size() << " " << numFree << " " << numFree*d << "     \r" << std::flush;
 
             // Do a few iterations per display frame
@@ -1633,15 +1637,25 @@ int main(int argc, char* argv[]) {
                 }
                 setAngles(chains, currentAngles);
 
+                // Reset alpha few times to make sure there isn't more to do
+                if (alpha < 1e-15 && tries < 3) {
+                    tries++;
+                    alpha = 0.1;
+                }
+
                 // Stop when the gradient is nothing
-                if (alpha < 1e-10) {
+                if (alpha < 1e-15) {
 
                     // Keep track of the successes versus attempts
-                    if (bestObjective < 1e-2) {
+                    if (bestObjective < 1e-7) {
                         numConverged++;
                     }
                     numPerformed++;
-                    std::cout << "sqr=" << bestObjective << "  alp=" << alpha << "  con= " << numConverged << " / " << numPerformed << "  " << chains.size() << " " << numFree << " " << numFree*d << "     \n" << std::flush;
+                    if (!std::isnan(bestObjective)) {
+                        totalObjective += bestObjective;
+                        totalObjectiveLog += std::log10(bestObjective);
+                    }
+                    std::cout << "s=" << bestObjective << " a=" << alpha << " c= " << numConverged << " / " << numPerformed << " " << chains.size() << " " << numFree << " " << numFree*d << " " << totalObjective / numPerformed << " " << totalObjectiveLog / numPerformed << "\n" << std::flush;
                     if (numPerformed >= 1000) {
                         modes.erase(modes.begin());
                         break;
@@ -1650,6 +1664,7 @@ int main(int argc, char* argv[]) {
                     // Otherwise start again with random angles
                     alpha = 0.1;
                     bestObjective = 1e10;
+                    tries = 0;
                     for (auto& chain : chains) {
                         std::vector<double> angles = chain.getAngles();
                         for (int j=0; j<angles.size(); ++j) {
