@@ -10,6 +10,8 @@ dataFiles = os.listdir(dataDir)
 info = []
 dimsUsed = []
 for i in range(len(dataFiles)):
+    if dataFiles[i] == "temp.log":
+        continue
 
     # Open the file 
     with open(dataDir + dataFiles[i], "r") as f:
@@ -29,7 +31,7 @@ for i in range(len(dataFiles)):
         # Parse the line
         lastLine = lastLine.strip().replace("  ", " ")
         lineSplit = lastLine.split(" ")
-        info.append({
+        infoObj = {
                 "filename": dataFiles[i],
                 "numGlobal": int(lineSplit[3]),
                 "numTotal": int(lineSplit[5]),
@@ -38,52 +40,70 @@ for i in range(len(dataFiles)):
                 "numFreeChains": int(lineSplit[7]),
                 "numFixedChains": int(lineSplit[6]) - int(lineSplit[7]),
                 "numFreeVars": int(lineSplit[8]),
+                "averageObjective": float(lineSplit[9]),
+                "averageObjectiveLog": float(lineSplit[10]),
                 "dimension": int(int(lineSplit[8]) / int(lineSplit[7])),
-                "setSizes": dataFiles[i][:-4].split("-")
-            })
-        if info[-1]["dimension"] not in dimsUsed:
-            dimsUsed.append(info[-1]["dimension"])
+                "setSizes": [int(a) for a in dataFiles[i][:-4].split("-")],
+                "knownInfeasible": False,
+            }
+        if len(infoObj["setSizes"]) > infoObj["dimension"]+1:
+            infoObj["knownInfeasible"] = True
+        for size in infoObj["setSizes"]:
+            if size > infoObj["dimension"]:
+                infoObj["knownInfeasible"] = True
+        info.append(infoObj)
+        if infoObj["dimension"] not in dimsUsed and not infoObj["knownInfeasible"]:
+            dimsUsed.append(infoObj["dimension"])
 
-        # Check for sanity
-        print("Info: ", info[-1])
-
-# Plot the data
-# pointTypes = {
-        # 2: (".", "red"),
-        # 3: (".", "blue"),
-        # 4: (".", "green"),
-        # 5: (".", "orange"),
-
-        # 6: ("x", "red"),
-        # 7: ("x", "green"),
-        # 8: ("x", "blue"),
-        # 9: ("x", "orange"),
-
-        # 10: ("+", "red"),
-        # 16: ("+", "green"),
-        # 18: ("+", "blue"),
-
-        # 20: ("*", "red"),
-        # 50: ("*", "green"),
-        # 100: ("*", "blue"),
-    # }
-# plt.figure(figsize=(10, 6))
-# for dim in dimsUsed:
-    # xData = [d["numChains"] for d in info if d["dimension"] == dim]
-    # yData = [d["numLocal"]  / float(d["numTotal"]) for d in info if d["dimension"] == dim]
-    # plt.scatter(xData, yData, marker=pointTypes[dim][0], color=pointTypes[dim][1], label="d="+str(dim))
-# plt.legend()
-# plt.show()
 import plotly.express as px
-xData = [d["numChains"] for d in info]
-yData = [d["numLocal"]  / float(d["numTotal"]) for d in info]
+import plotly.graph_objs as go
+import numpy as np
+
+x = [d["numChains"] for d in info]
+y = [d["averageObjective"] for d in info]
 labels = [d["filename"] for d in info]
-fig = px.scatter(x=xData, y=yData, hover_name=labels)
-fig.update_traces(textposition='top left')
-fig.update_layout(
-    xaxis_title="Number of chains",
-    yaxis_title="Fraction of local variables",
-)
+
+# Creating the dataset, and generating the plot
+trace1 = go.Scatter(
+                  x=x,
+                  y=y,
+                  mode='markers',
+                  hovertext=labels
+                  )
+
+gObjs = [trace1]
+for dim in dimsUsed:
+    xNoInfeasible = [d["numChains"] for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
+    yNoInfeasible = [d["averageObjective"] for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
+    z = np.polyfit(xNoInfeasible, yNoInfeasible, 2)
+    f = np.poly1d(z)
+    print("for d=", dim)
+    print(f)
+
+    # calculate new x's and y's
+    x_new = np.linspace(min(xNoInfeasible), max(xNoInfeasible), 50)
+    y_new = f(x_new)
+
+    trace2 = go.Scatter(
+                      x=x_new,
+                      y=y_new,
+                      mode='lines',
+                      name='fit for ' + str(dim)
+                      )
+    gObjs.append(trace2)
+
+layout = go.Layout(
+                )
+
+fig = go.Figure(data=gObjs, layout=layout)
 fig.show()
+
+# fig = px.scatter(x=xData, y=yData, hover_name=labels)
+# fig.update_traces(textposition='top left')
+# fig.update_layout(
+    # xaxis_title="Number of chains",
+    # yaxis_title="Average Objective",
+# )
+# fig.show()
 
 
