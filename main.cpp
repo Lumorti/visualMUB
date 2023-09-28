@@ -202,6 +202,26 @@ public:
 
     }
 
+    // Would changing a two angles of two chains affect the objective? TODO
+    double getGradient2(int chainDiff, int angleDiff, int chainDiff2, int angleDiff2) {
+
+        // If this chain is the one
+        if (chainIndex == chainDiff) {
+            return 2.0 * vectorLengths[angleDiff] * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+        } 
+
+        // Check if this chainDiff is part of the relation
+        for (int i=0; i<relationInds.size(); ++i) {
+            if (relationInds[i].second == chainDiff) {
+                return 2.0 * vectorLengths[angleDiff] * relationInds[i].first * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+            }
+        }
+
+        // Otherwise that chain and angle has no effect on this chain
+        return 0.0;
+
+    }
+
 	// Update the objective
 	void updateObjective() {
 
@@ -515,6 +535,55 @@ std::vector<double> getGradient(std::vector<Chain>& chains, bool fixFirst) {
 
 }
 
+// Get the Hessian of the objective at the current point
+std::vector<std::vector<double>> getHessian(std::vector<Chain>& chains, bool fixFirst) {
+
+    // Update all the chains
+    for (int i = 0; i < chains.size(); ++i) {
+        chains[i].updateFromRelations();
+        chains[i].updateObjective();
+    }
+
+    // Differentiate by each angle in each chain
+    std::vector<std::<vector<double>> hessian;
+    int numAnglesPerChain = chains[0].getAngles().size();
+    int ind = 0;
+    for (int chainInd = 0; chainInd < chains.size(); chainInd++) {
+        if (chains[chainInd].isFixed()) {
+            continue;
+        }
+        for (int angleInd = 0; angleInd < numAnglesPerChain; angleInd++) {
+
+            // For the other chain and angle
+            std::vector<double> hessRow;
+            for (int chainInd2 = 0; chainInd2 < chains.size(); chainInd2++) {
+                if (chains[chainInd2].isFixed()) {
+                    continue;
+                }
+                for (int angleInd2 = 0; angleInd2 < numAnglesPerChain; angleInd2++) {
+
+                    // Differentiate each chain by these two angles TODO
+                    double gradPerAngle = 0;
+                    if (!(fixFirst && angleInd == 0)) {
+                        for (int i = 0; i < chains.size(); ++i) {
+                            gradPerAngle += chains[i].getGradient2(chainInd, angleInd, chainInd2, angleInd2);
+                        }
+                    }
+                    hessRow.push_back(gradPerAngle);
+
+                }
+            }
+
+            // Add the row to the hessian
+            hessian.push_back(hessRow);
+
+        }
+    }
+
+    // Return the objective
+    return hess;
+
+}
 // Given a list of chains, set the angles
 void setAngles(std::vector<Chain>& chains, std::vector<double> angles) {
 
@@ -1655,7 +1724,7 @@ int main(int argc, char* argv[]) {
                         totalObjective += bestObjective;
                         totalObjectiveLog += std::log10(bestObjective);
                     }
-                    std::cout << "s=" << bestObjective << " a=" << alpha << " c= " << numConverged << " / " << numPerformed << " " << chains.size() << " " << numFree << " " << numFree*d << " " << totalObjective / numPerformed << " " << totalObjectiveLog / numPerformed << "\n" << std::flush;
+                    std::cout << "s=" << bestObjective << " a=" << alpha << " c= " << numConverged << " / " << numPerformed << "  " << chains.size() << " " << numFree << " " << numFree*d << "     \n" << std::flush;
                     if (numPerformed >= 1000) {
                         modes.erase(modes.begin());
                         break;
