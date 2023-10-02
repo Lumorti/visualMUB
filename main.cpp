@@ -187,13 +187,27 @@ public:
 
         // If this chain is the one
         if (chainIndex == chainDiff) {
-            return 2.0 * vectorLengths[angleDiff] * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+            double P = finalDist - radius;
+            double D = 1.0 / finalDist;
+            double ZCoeff = 2.0 * vectorLengths[angleDiff];
+            double XCoeff = ZCoeff * finalX;
+            double YCoeff = ZCoeff * finalY;
+            double Z = XCoeff * cos(angles[angleDiff]) + YCoeff * sin(angles[angleDiff]);
+            double deriv = P * D * Z;
+            return deriv;
         } 
 
         // Check if this chainDiff is part of the relation
         for (int i=0; i<relationInds.size(); ++i) {
             if (relationInds[i].second == chainDiff) {
-                return 2.0 * vectorLengths[angleDiff] * relationInds[i].first * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+                double P = finalDist - radius;
+                double D = 1.0 / finalDist;
+                double ZCoeff = relationInds[i].first * 2.0 * vectorLengths[angleDiff];
+                double XCoeff = ZCoeff * finalX;
+                double YCoeff = ZCoeff * finalY;
+                double Z = XCoeff * cos(angles[angleDiff]) + YCoeff * sin(angles[angleDiff]);
+                double deriv = P * D * Z;
+                return deriv;
             }
         }
 
@@ -205,20 +219,50 @@ public:
     // Would changing a two angles of two chains affect the objective? TODO
     double getGradient2(int chainDiff, int angleDiff, int chainDiff2, int angleDiff2) {
 
-        // If this chain is the one
+        // Whether the angle change cause a positive or negative rotation
+        double coeff1 = 0.0;
+        double coeff2 = 0.0;
         if (chainIndex == chainDiff) {
-            return 2.0 * vectorLengths[angleDiff] * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
-        } 
-
-        // Check if this chainDiff is part of the relation
+            coeff1 = 1.0;
+        }
+        if (chainIndex == chainDiff2) {
+            coeff2 = 1.0;
+        }
         for (int i=0; i<relationInds.size(); ++i) {
             if (relationInds[i].second == chainDiff) {
-                return 2.0 * vectorLengths[angleDiff] * relationInds[i].first * (finalDist - radius) / finalDist * (finalX*cos(angles[angleDiff]) + finalY*sin(angles[angleDiff]));
+                coeff1 = relationInds[i].first;
+            }
+            if (relationInds[i].second == chainDiff2) {
+                coeff2 = relationInds[i].first;
             }
         }
+        if (coeff1 == 0.0 && coeff2 == 0.0) {
+            return 0.0;
+        }
 
-        // Otherwise that chain and angle has no effect on this chain
-        return 0.0;
+        double P = finalDist - radius;
+        double D = 1.0 / finalDist;
+
+        double L = vectorLengths[angleDiff];
+        double Z1 = 2.0 * coeff1 * L * (finalX * cos(angles[angleDiff]) + finalY * sin(angles[angleDiff]));
+        double Z2 = 2.0 * coeff2 * L * (finalX * cos(angles[angleDiff2]) + finalY * sin(angles[angleDiff2]));
+
+        double dP = 0.5 * D * Z2;
+        double dD = -0.5 * std::pow(D, 3) * Z2;
+        double sinIfSame = 0;
+        double cosIfSame = 0;
+        if (chainDiff == chainDiff2 && angleDiff == angleDiff2) {
+            sinIfSame = -sin(angles[angleDiff]);
+            cosIfSame = cos(angles[angleDiff]);
+        }
+        double dZ1 = 2.0*L*L*coeff1*coeff2*cos(angles[angleDiff])*cos(angles[angleDiff2])
+                    + 2*finalX*L*sinIfSame 
+                    + 2.0*L*L*coeff1*coeff2*sin(angles[angleDiff])*sin(angles[angleDiff2])
+                    + 2*finalY*L*cosIfSame; 
+
+        double hessEl = dP*D*Z1 + P*(dD*Z1 + dZ1*D);
+
+        return hessEl;
 
     }
 
@@ -535,19 +579,40 @@ std::vector<double> getGradient(std::vector<Chain>& chains, bool fixFirst) {
 
 }
 
+// Get the gradient of the objective at the current point
+Eigen::VectorXd getGradientEigen(std::vector<Chain>& chains, bool fixFirst) {
+
+    // Get the gradient as a vector
+    std::vector<double> grad = getGradient(chains, fixFirst);
+
+    // Convert to an Eigen vector
+    Eigen::VectorXd gradEigen(grad.size());
+    for (int i = 0; i < grad.size(); ++i) {
+        gradEigen(i) = grad[i];
+    }
+
+    // Return the objective
+    return gradEigen;
+
+}
+
 // Get the Hessian of the objective at the current point
-std::vector<std::vector<double>> getHessian(std::vector<Chain>& chains, bool fixFirst) {
+Eigen::MatrixXd getHessian(std::vector<Chain>& chains, bool fixFirst) {
 
     // Update all the chains
+    int numAngles = 0;
     for (int i = 0; i < chains.size(); ++i) {
         chains[i].updateFromRelations();
         chains[i].updateObjective();
+        if (!chains[i].isFixed()) {
+            numAngles += chains[i].getAngles().size();
+        }
     }
 
     // Differentiate by each angle in each chain
-    std::vector<std::<vector<double>> hessian;
     int numAnglesPerChain = chains[0].getAngles().size();
-    int ind = 0;
+    Eigen::MatrixXd hess(numAngles, numAngles);
+    int ind1 = 0;
     for (int chainInd = 0; chainInd < chains.size(); chainInd++) {
         if (chains[chainInd].isFixed()) {
             continue;
@@ -555,7 +620,7 @@ std::vector<std::vector<double>> getHessian(std::vector<Chain>& chains, bool fix
         for (int angleInd = 0; angleInd < numAnglesPerChain; angleInd++) {
 
             // For the other chain and angle
-            std::vector<double> hessRow;
+            int ind2 = 0;
             for (int chainInd2 = 0; chainInd2 < chains.size(); chainInd2++) {
                 if (chains[chainInd2].isFixed()) {
                     continue;
@@ -563,27 +628,30 @@ std::vector<std::vector<double>> getHessian(std::vector<Chain>& chains, bool fix
                 for (int angleInd2 = 0; angleInd2 < numAnglesPerChain; angleInd2++) {
 
                     // Differentiate each chain by these two angles TODO
+                    // TODO not symmetric
                     double gradPerAngle = 0;
                     if (!(fixFirst && angleInd == 0)) {
                         for (int i = 0; i < chains.size(); ++i) {
                             gradPerAngle += chains[i].getGradient2(chainInd, angleInd, chainInd2, angleInd2);
                         }
                     }
-                    hessRow.push_back(gradPerAngle);
+                    hess(ind1, ind2) = gradPerAngle;
+
+                    ind2++;
 
                 }
             }
 
-            // Add the row to the hessian
-            hessian.push_back(hessRow);
+            ind1++;
 
         }
     }
 
-    // Return the objective
+    // Return the Hessian
     return hess;
 
 }
+
 // Given a list of chains, set the angles
 void setAngles(std::vector<Chain>& chains, std::vector<double> angles) {
 
@@ -811,6 +879,7 @@ int main(int argc, char* argv[]) {
                                     "check2", 
                                     "minima", 
                                     "gradient", 
+                                    "gradient2", 
                                     "shotgun", 
                                     "annealFull", 
                                     "annealPartial", 
@@ -1031,7 +1100,6 @@ int main(int argc, char* argv[]) {
     double alpha = 0.1;
     int numPerformed = 0;
     int numConverged = 0;
-    int tries = 0;
     double totalObjective = 0;
     double totalObjectiveLog = 0;
 
@@ -1667,7 +1735,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-        // Test many random starts followed by gradient descent TODO
+        // Test many random starts followed by gradient descent
         } else if (mode == "shotgun") {
 
             // Calculate the objective
@@ -1683,18 +1751,8 @@ int main(int argc, char* argv[]) {
                 std::vector<double> gradient = getGradient(chains, fixFirst);
                 double newObj = getObjectiveNoUpdate(chains);
 
-                // Normalize the gradient
-                double mag = 0.0;
-                for (int i=0; i<gradient.size(); ++i) {
-                    mag += gradient[i] * gradient[i];
-                }
-                mag = sqrt(mag);
-                for (int i=0; i<gradient.size(); ++i) {
-                    gradient[i] /= mag;
-                }
-
                 // Check if we need to decrease alpha
-                if (std::isnan(newObj) || newObj > bestObjective || std::abs(newObj - bestObjective) < 1e-10) {
+                if (std::isnan(newObj) || newObj > bestObjective || std::abs(newObj - bestObjective) < 1e-20) {
                     alpha *= 0.8;
                 } else {
                     bestObjective = newObj;
@@ -1705,12 +1763,6 @@ int main(int argc, char* argv[]) {
                     currentAngles[i] -= gradient[i] * alpha;
                 }
                 setAngles(chains, currentAngles);
-
-                // Reset alpha few times to make sure there isn't more to do
-                if (alpha < 1e-15 && tries < 3) {
-                    tries++;
-                    alpha = 0.1;
-                }
 
                 // Stop when the gradient is nothing
                 if (alpha < 1e-15) {
@@ -1733,7 +1785,6 @@ int main(int argc, char* argv[]) {
                     // Otherwise start again with random angles
                     alpha = 0.1;
                     bestObjective = 1e10;
-                    tries = 0;
                     for (auto& chain : chains) {
                         std::vector<double> angles = chain.getAngles();
                         for (int j=0; j<angles.size(); ++j) {
@@ -1772,20 +1823,11 @@ int main(int argc, char* argv[]) {
 
                 // Get the gradient
                 std::vector<double> currentAngles = getAngles(chains);
-                std::vector<double> gradient = getGradient(chains, fixFirst);
+                Eigen::VectorXd gradient = getGradientEigen(chains, fixFirst);
                 double newObj = getObjectiveNoUpdate(chains);
 
-                // Get the mag of the gradient
-                double mag = 0.0;
-                for (int i=0; i<gradient.size(); ++i) {
-                    mag += gradient[i] * gradient[i];
-                }
-                mag = sqrt(mag);
-                for (int i=0; i<gradient.size(); ++i) {
-                    gradient[i] /= mag;
-                }
-
-                if (newObj > bestObjective) {
+                // Decrease alpha if we need to
+                if (std::isnan(newObj) || newObj > bestObjective || gradient.norm() < 1e-20 || std::abs(newObj - bestObjective) < 1e-20) {
                     alpha *= 0.8;
                 } else {
                     bestObjective = newObj;
@@ -1794,6 +1836,58 @@ int main(int argc, char* argv[]) {
                 // Update the angles based on this
                 for (int i=0; i<currentAngles.size(); ++i) {
                     currentAngles[i] -= gradient[i] * alpha;
+                }
+                setAngles(chains, currentAngles);
+
+                // Stop when the gradient is nothing
+                if (alpha < 1e-10) {
+                    modes.erase(modes.begin());
+                    break;
+                }
+
+            }
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // Perform gradient descent with the Hessian TODO
+        } else if (mode == "gradient2") {
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            double maxDiff = 0.0;
+            for (int i=0; i<chains.size(); ++i) {
+                maxDiff = std::max(maxDiff, chains[i].getObjective());
+            }
+            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  alpha=" << alpha << "     \r" << std::flush;
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Get the gradient and hessian TODO
+                std::vector<double> currentAngles = getAngles(chains);
+                Eigen::MatrixXd hessian = getHessian(chains, fixFirst);
+                Eigen::VectorXd gradient = getGradientEigen(chains, fixFirst);
+                double newObj = getObjectiveNoUpdate(chains);
+                std::cout << "hessian=\n" << hessian << std::endl;
+
+                // Get the search direction
+                Eigen::VectorXd direction = hessian.colPivHouseholderQr().solve(gradient);
+
+                // Decrease alpha if we need to
+                if (std::isnan(newObj) || newObj > bestObjective || direction.norm() < 1e-20 || std::abs(newObj - bestObjective) < 1e-20) {
+                    alpha *= 0.8;
+                } else {
+                    bestObjective = newObj;
+                }
+
+                // Update the angles based on this
+                for (int i=0; i<currentAngles.size(); ++i) {
+                    currentAngles[i] += direction[i] * alpha;
                 }
                 setAngles(chains, currentAngles);
 
