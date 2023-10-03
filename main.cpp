@@ -4,6 +4,8 @@
 #include <Eigen/Dense>
 #include <unordered_map>
 #include <iomanip>
+#define OPTIM_ENABLE_EIGEN_WRAPPERS
+#include "optim.hpp"
 
 class Chain {
 private:
@@ -61,7 +63,7 @@ public:
 
 		// Update the points based on the angles
 		std::pair<double,double> prevPos = startPosition;
-		for (int i = 0; i < points.size(); ++i) {
+		for (unsigned long int i = 0; i < points.size(); ++i) {
 			positions[i] = {prevPos.first + vectorLengths[i] * sin(angles[i]), prevPos.second - vectorLengths[i] * cos(angles[i])};
 			points[i].setPosition(positions[i].first, positions[i].second);
 			prevPos = positions[i];
@@ -69,7 +71,7 @@ public:
 
 		// Update the lines based on the points
 		prevPos = startPosition;
-		for (int i = 0; i < lines.size(); ++i) {
+		for (unsigned long int i = 0; i < lines.size(); ++i) {
 			double angle = atan2(positions[i].second - prevPos.second, positions[i].first - prevPos.first);
 			lines[i].setPosition(prevPos.first, prevPos.second);
 			lines[i].setRotation(angle * 180.0 / M_PI);
@@ -85,7 +87,7 @@ public:
 		relationInds = relationInds_;
 
 		// Also change the colour to make it more obvious
-		for (int i = 0; i < points.size(); ++i) {
+		for (unsigned long int i = 0; i < points.size(); ++i) {
 			points[i].setFillColor(sf::Color::Red);
 		}
 
@@ -109,7 +111,7 @@ public:
     // Get a list of the chains that related to this
     std::vector<Chain*> getRelatedChains() {
         std::vector<Chain*> relatedChains;
-        for (int i = 0; i < relation.size(); ++i) {
+        for (long unsigned int i = 0; i < relation.size(); ++i) {
             relatedChains.push_back(relation[i].second);
         }
         return relatedChains;
@@ -134,7 +136,7 @@ public:
 	double getAngleToEdge() {
 		double finalX = 0;
 		double finalY = 0;
-		for (int i = 0; i < angles.size(); ++i) {
+		for (unsigned long int i = 0; i < angles.size(); ++i) {
 			finalX += vectorLengths[i] * sin(angles[i]);
 			finalY -= vectorLengths[i] * cos(angles[i]);
 		}
@@ -150,7 +152,7 @@ public:
 			// How close the last point is versus the circle radius
 			double finalX = 0;
 			double finalY = 0;
-			for (int i = 0; i < angles.size(); ++i) {
+			for (unsigned long int i = 0; i < angles.size(); ++i) {
 				finalX += vectorLengths[i] * sin(angles[i]);
 				finalY -= vectorLengths[i] * cos(angles[i]);
 			}
@@ -186,40 +188,37 @@ public:
     double getGradient(int chainDiff, int angleDiff) {
 
         // If this chain is the one
+        double coeff = 0.0;
         if (chainIndex == chainDiff) {
-            double P = finalDist - radius;
-            double D = 1.0 / finalDist;
-            double ZCoeff = 2.0 * vectorLengths[angleDiff];
-            double XCoeff = ZCoeff * finalX;
-            double YCoeff = ZCoeff * finalY;
-            double Z = XCoeff * cos(angles[angleDiff]) + YCoeff * sin(angles[angleDiff]);
-            double deriv = P * D * Z;
-            return deriv;
+            coeff = 1.0;
         } 
 
         // Check if this chainDiff is part of the relation
-        for (int i=0; i<relationInds.size(); ++i) {
+        for (long unsigned int i=0; i<relationInds.size(); ++i) {
             if (relationInds[i].second == chainDiff) {
-                double P = finalDist - radius;
-                double D = 1.0 / finalDist;
-                double ZCoeff = relationInds[i].first * 2.0 * vectorLengths[angleDiff];
-                double XCoeff = ZCoeff * finalX;
-                double YCoeff = ZCoeff * finalY;
-                double Z = XCoeff * cos(angles[angleDiff]) + YCoeff * sin(angles[angleDiff]);
-                double deriv = P * D * Z;
-                return deriv;
+                coeff = relation[i].first;
+                break;
             }
         }
 
         // Otherwise that chain and angle has no effect on this chain
-        return 0.0;
+        if (coeff == 0.0) {
+            return 0.0;
+        }
+
+        // Otherwise calculate the derivative
+        double P = finalDist - radius;
+        double D = 1.0 / finalDist;
+        double Z = coeff * 2.0 * vectorLengths[angleDiff] * (finalX * cos(angles[angleDiff]) + finalY * sin(angles[angleDiff]));
+        double deriv = P * D * Z;
+        return deriv;
 
     }
 
-    // Would changing a two angles of two chains affect the objective? TODO
+    // Would changing two angles of two chains affect the objective?
     double getGradient2(int chainDiff, int angleDiff, int chainDiff2, int angleDiff2) {
 
-        // Whether the angle change cause a positive or negative rotation
+        // Whether the angle change causes a positive or negative rotation
         double coeff1 = 0.0;
         double coeff2 = 0.0;
         if (chainIndex == chainDiff) {
@@ -228,7 +227,7 @@ public:
         if (chainIndex == chainDiff2) {
             coeff2 = 1.0;
         }
-        for (int i=0; i<relationInds.size(); ++i) {
+        for (long unsigned int i=0; i<relationInds.size(); ++i) {
             if (relationInds[i].second == chainDiff) {
                 coeff1 = relationInds[i].first;
             }
@@ -262,6 +261,18 @@ public:
 
         double hessEl = dP*D*Z1 + P*(dD*Z1 + dZ1*D);
 
+        //std::cout << "chain diff 1: " << chainDiff << std::endl;
+        //std::cout << "angle diff 1: " << angleDiff << std::endl;
+        //std::cout << "chain diff 2: " << chainDiff2 << std::endl;
+        //std::cout << "angle diff 2: " << angleDiff2 << std::endl;
+        //std::cout << "P: " << P << std::endl;
+        //std::cout << "D: " << D << std::endl;
+        //std::cout << "Z1: " << Z1 << std::endl;
+        //std::cout << "Z2: " << Z2 << std::endl;
+        //std::cout << "dP: " << dP << std::endl;
+        //std::cout << "dD: " << dD << std::endl;
+        //std::cout << "dZ1: " << dZ1 << std::endl;
+
         return hessEl;
 
     }
@@ -272,7 +283,7 @@ public:
 		// How close the last point is versus the circle radius
 		finalX = 0;
 		finalY = 0;
-		for (int i=0; i<angles.size(); ++i) {
+		for (unsigned long int i=0; i<angles.size(); ++i) {
 			finalX += vectorLengths[i] * sin(angles[i]);
 			finalY -= vectorLengths[i] * cos(angles[i]);
 		}
@@ -344,7 +355,7 @@ public:
 		}
 
 		// The points after the dragged point
-		for (int i=toDrag; i<points.size(); ++i) {
+		for (unsigned long int i=toDrag; i<points.size(); ++i) {
 
 			// Simple move with the point
 			positions[i] = std::pair<double,double>(positions[i].first + delta.first, positions[i].second + delta.second);
@@ -386,7 +397,7 @@ public:
 			sf::Vector2f mousePosition = window.mapPixelToCoords(sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
 
 			// Check if the mouse is inside any of the points of this chain
-			for (int i = 0; i < points.size(); i++) {
+			for (unsigned long int i = 0; i < points.size(); i++) {
 				if (points[i].getGlobalBounds().contains(mousePosition)) {
 					dragging = i;
 					break;
@@ -445,11 +456,11 @@ public:
         if (relation.size() != 0) {
 
             // For each element in the chain
-            for (int i = 0; i < points.size(); ++i) {
+            for (unsigned long int i = 0; i < points.size(); ++i) {
 
                 // Get the sum of the angles from the other chains
                 double angle = 0;
-                for (int j = 0; j < relation.size(); ++j) {
+                for (unsigned long int j = 0; j < relation.size(); ++j) {
                     angle += relation[j].first * relation[j].second->angles[i];
                 }
 
@@ -482,7 +493,7 @@ public:
 		for (const auto& line : lines) {
 			window.draw(line);
 		}
-		for (int i = 0; i < points.size(); ++i) {
+		for (unsigned long int i = 0; i < points.size(); ++i) {
             window.draw(points[i]);
         }
 		text.setFont(font);
@@ -495,14 +506,14 @@ public:
 double getObjective(std::vector<Chain>& chains) {
 
     // Update all the chains
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         chains[i].updateFromRelations();
         chains[i].updateObjective();
     }
 
     // The objective is the sum of the individual objectives
     double objective = 0;
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         objective += chains[i].getObjective();
     }
 
@@ -516,7 +527,7 @@ double getObjectiveNoUpdate(std::vector<Chain>& chains) {
 
     // The objective is the sum of the individual objectives
     double objective = 0;
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         objective += chains[i].getObjective();
     }
 
@@ -530,7 +541,7 @@ std::vector<double> getAngles(std::vector<Chain>& chains) {
 
     // Get the angles from each chain
     std::vector<double> angles;
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         if (chains[i].isFixed()) {
             continue;
         }
@@ -543,11 +554,26 @@ std::vector<double> getAngles(std::vector<Chain>& chains) {
 
 }
 
+// Given a list of chains, get the angles
+Eigen::VectorXd getAnglesEigen(std::vector<Chain>& chains) {
+
+    // Get the angles from each chain
+    std::vector<double> angles = getAngles(chains);
+    Eigen::VectorXd anglesEigen(angles.size());
+    for (unsigned long int i = 0; i < angles.size(); ++i) {
+        anglesEigen(i) = angles[i];
+    }
+
+    // Return the angles
+    return anglesEigen;
+
+}
+
 // Get the gradient of the objective at the current point
 std::vector<double> getGradient(std::vector<Chain>& chains, bool fixFirst) {
 
     // Update all the chains
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         chains[i].updateFromRelations();
         chains[i].updateObjective();
     }
@@ -555,8 +581,7 @@ std::vector<double> getGradient(std::vector<Chain>& chains, bool fixFirst) {
     // Differentiate by each angle in each chain
     std::vector<double> grad;
     int numAnglesPerChain = chains[0].getAngles().size();
-    int ind = 0;
-    for (int chainInd = 0; chainInd < chains.size(); chainInd++) {
+    for (unsigned long int chainInd = 0; chainInd < chains.size(); chainInd++) {
         if (chains[chainInd].isFixed()) {
             continue;
         }
@@ -565,7 +590,7 @@ std::vector<double> getGradient(std::vector<Chain>& chains, bool fixFirst) {
             // Differentiate each chain by this angle
             double gradPerAngle = 0;
             if (!(fixFirst && angleInd == 0)) {
-                for (int i = 0; i < chains.size(); ++i) {
+                for (unsigned long int i = 0; i < chains.size(); ++i) {
                     gradPerAngle += chains[i].getGradient(chainInd, angleInd);
                 }
             }
@@ -587,7 +612,7 @@ Eigen::VectorXd getGradientEigen(std::vector<Chain>& chains, bool fixFirst) {
 
     // Convert to an Eigen vector
     Eigen::VectorXd gradEigen(grad.size());
-    for (int i = 0; i < grad.size(); ++i) {
+    for (unsigned long int i = 0; i < grad.size(); ++i) {
         gradEigen(i) = grad[i];
     }
 
@@ -601,7 +626,7 @@ Eigen::MatrixXd getHessian(std::vector<Chain>& chains, bool fixFirst) {
 
     // Update all the chains
     int numAngles = 0;
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         chains[i].updateFromRelations();
         chains[i].updateObjective();
         if (!chains[i].isFixed()) {
@@ -613,7 +638,7 @@ Eigen::MatrixXd getHessian(std::vector<Chain>& chains, bool fixFirst) {
     int numAnglesPerChain = chains[0].getAngles().size();
     Eigen::MatrixXd hess(numAngles, numAngles);
     int ind1 = 0;
-    for (int chainInd = 0; chainInd < chains.size(); chainInd++) {
+    for (unsigned long int chainInd = 0; chainInd < chains.size(); chainInd++) {
         if (chains[chainInd].isFixed()) {
             continue;
         }
@@ -621,17 +646,16 @@ Eigen::MatrixXd getHessian(std::vector<Chain>& chains, bool fixFirst) {
 
             // For the other chain and angle
             int ind2 = 0;
-            for (int chainInd2 = 0; chainInd2 < chains.size(); chainInd2++) {
+            for (unsigned long int chainInd2 = 0; chainInd2 < chains.size(); chainInd2++) {
                 if (chains[chainInd2].isFixed()) {
                     continue;
                 }
                 for (int angleInd2 = 0; angleInd2 < numAnglesPerChain; angleInd2++) {
 
-                    // Differentiate each chain by these two angles TODO
-                    // TODO not symmetric
+                    // Differentiate each chain by these two angles
                     double gradPerAngle = 0;
-                    if (!(fixFirst && angleInd == 0)) {
-                        for (int i = 0; i < chains.size(); ++i) {
+                    if (!(fixFirst && (angleInd == 0 || angleInd2 == 0))) {
+                        for (unsigned long int i = 0; i < chains.size(); ++i) {
                             gradPerAngle += chains[i].getGradient2(chainInd, angleInd, chainInd2, angleInd2);
                         }
                     }
@@ -657,7 +681,7 @@ void setAngles(std::vector<Chain>& chains, std::vector<double> angles) {
 
     // Set the angles for each chain
     int index = 0;
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         if (chains[i].isFixed()) {
             continue;
         }
@@ -665,6 +689,68 @@ void setAngles(std::vector<Chain>& chains, std::vector<double> angles) {
         chains[i].setAngles(chainAngles);
         index += chains[i].getAngles().size();
     }
+
+}
+
+// Data structure to pass along to the below function
+struct ll_data_t {
+    std::vector<Chain>* chains;
+    bool fixFirst;
+};
+
+// The function used by the optim library TODO
+double optFunc(const Eigen::VectorXd& inputVals, Eigen::VectorXd* gradOut, void* optData) {
+
+    // Extract the params needed
+    ll_data_t* objfn_data = reinterpret_cast<ll_data_t*>(optData);
+    std::vector<Chain>& chains = *(objfn_data->chains);
+    bool fixFirst = objfn_data->fixFirst;
+
+    // Set the angles
+    std::vector<double> angles;
+    for (long int i = 0; i < inputVals.size(); ++i) {
+        angles.push_back(inputVals(i));
+    }
+    setAngles(chains, angles);
+
+    // Update all the chains
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
+        chains[i].updateFromRelations();
+        chains[i].updateObjective();
+    }
+
+    // The objective is the sum of the individual objectives
+    double objective = 0;
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
+        objective += chains[i].getObjective();
+    }
+
+    // Differentiate by each angle in each chain
+    if (gradOut) {
+        int numAnglesPerChain = chains[0].getAngles().size();
+        int ind = 0;
+        for (unsigned long int chainInd = 0; chainInd < chains.size(); chainInd++) {
+            if (chains[chainInd].isFixed()) {
+                continue;
+            }
+            for (int angleInd = 0; angleInd < numAnglesPerChain; angleInd++) {
+
+                // Differentiate each chain by this angle
+                double gradPerAngle = 0;
+                if (!(fixFirst && angleInd == 0)) {
+                    for (unsigned long int i = 0; i < chains.size(); ++i) {
+                        gradPerAngle += chains[i].getGradient(chainInd, angleInd);
+                    }
+                }
+                (*gradOut)[ind] = gradPerAngle;
+                ind++;
+
+            }
+        }
+    }
+
+    // Return the objective
+    return objective;
 
 }
 
@@ -771,7 +857,7 @@ int main(int argc, char* argv[]) {
 
     // If there's a stop, move it to the end
     bool wasStop = false;
-    for (int i = 0; i < modes.size(); ++i) {
+    for (unsigned long int i = 0; i < modes.size(); ++i) {
         if (modes[i] == "stop") {
             modes.erase(modes.begin() + i);
             wasStop = true;
@@ -816,14 +902,14 @@ int main(int argc, char* argv[]) {
 	double maxX = 0;
 	double maxY = 0;
 	std::vector<Chain> chains;
-	for (int i = 1; i < N.size(); ++i) {
+	for (unsigned long int i = 1; i < N.size(); ++i) {
 		int NSoFarI = 0;
-		for (int m = 1; m < i; ++m) {
+		for (unsigned long int m = 1; m < i; ++m) {
 			NSoFarI += N[m];
 		}
-		for (int j = i; j < N.size(); ++j) {
+		for (unsigned long int j = i; j < N.size(); ++j) {
 			int NSoFarJ = 0;
-			for (int m = 1; m < j; ++m) {
+			for (unsigned long int m = 1; m < j; ++m) {
 				NSoFarJ += N[m];
 			}
 			for (int k = 0; k < N[i]; ++k) {
@@ -861,7 +947,7 @@ int main(int argc, char* argv[]) {
 	}
 
     // Assign an index to each chain
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         chains[i].setIndex(i);
     }
 
@@ -880,6 +966,7 @@ int main(int argc, char* argv[]) {
                                     "minima", 
                                     "gradient", 
                                     "gradient2", 
+                                    "optim", 
                                     "shotgun", 
                                     "annealFull", 
                                     "annealPartial", 
@@ -887,7 +974,7 @@ int main(int argc, char* argv[]) {
                                     "fix/unfix first angle",
                                     "interrupt",
                                 };
-    for (int i = 0; i < buttonNames.size(); ++i) {
+    for (unsigned long int i = 0; i < buttonNames.size(); ++i) {
 
         // Create the button
         sf::RectangleShape button(sf::Vector2f(200, 50));
@@ -913,9 +1000,9 @@ int main(int argc, char* argv[]) {
 	int nextInd = 0;
 
 	// Add the linear constraints
-	for (int i = 0; i < chains.size(); ++i) {
+	for (unsigned long int i = 0; i < chains.size(); ++i) {
 		std::pair<int,int> vecIndices1 = chains[i].getVecIndices();	
-		for (int j = i+1; j < chains.size(); ++j) {
+		for (unsigned long int j = i+1; j < chains.size(); ++j) {
 			std::pair<int,int> vecIndices2 = chains[j].getVecIndices();
 
 			// theta_abi + theta_cai = theta_cbi
@@ -924,7 +1011,7 @@ int main(int argc, char* argv[]) {
 				// Find the other
 				std::pair<int,int> lookingFor = std::make_pair(vecIndices2.first, vecIndices1.second);
 				int otherInd = -1;
-				for (int k = 0; k < chains.size(); ++k) {
+				for (unsigned long int k = 0; k < chains.size(); ++k) {
 					if (chains[k].getVecIndices() == lookingFor) {
 						otherInd = k;
 						break;
@@ -1031,7 +1118,7 @@ int main(int argc, char* argv[]) {
     int numNonZero = 0;
     int numZeroAndFixed = 0;
     int numNonZeroAndFixed = 0;
-    for (int i = 0; i < chains.size(); ++i) {
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
         if (std::abs(chains[i].getRadius()) < 1e-10) {
             numZero++;
             if (chains[i].isFixed()) {
@@ -1147,7 +1234,7 @@ int main(int argc, char* argv[]) {
             // Check for button presses
 			sf::Vector2f mousePosition = window.mapPixelToCoords(sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
             if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-                for (int i=0; i<buttons.size(); ++i) {
+                for (unsigned long int i=0; i<buttons.size(); ++i) {
                     if (buttons[i].getGlobalBounds().contains(mousePosition)) {
                         std::cout << "pressed button: " << buttonNames[i] << std::endl;
                         if (buttonNames[i] == "fix/unfix first angle") {
@@ -1250,7 +1337,7 @@ int main(int argc, char* argv[]) {
 
                 // For each chain
                 std::vector<std::vector<double>> prevAngles(chains.size());
-                for (int i = 0; i < chains.size(); ++i) {
+                for (unsigned long int i = 0; i < chains.size(); ++i) {
 
                     // Wiggle each angle a bit
                     std::vector<double> angles = chains[i].getAngles();
@@ -1258,7 +1345,7 @@ int main(int argc, char* argv[]) {
                     if (chains[i].isFixed()) {
                         continue;
                     }
-                    for (int j = 0; j < angles.size(); ++j) {
+                    for (unsigned long int j = 0; j < angles.size(); ++j) {
                         angles[j] += currentTemp * ((rand() / (double)RAND_MAX)-0.5);
                     }
                     if (fixFirst) {
@@ -1290,7 +1377,7 @@ int main(int argc, char* argv[]) {
                     numAccepts++;
                     prevObjective = overallObjective;
                 } else {
-                    for (int i = 0; i < chains.size(); ++i) {
+                    for (unsigned long int i = 0; i < chains.size(); ++i) {
                         chains[i].setAngles(prevAngles[i]);
                     }
                 }
@@ -1324,12 +1411,12 @@ int main(int argc, char* argv[]) {
 
                 // For each chain
                 std::vector<std::vector<double>> prevAngles(relatedChains.size());
-                for (int i=0; i<relatedChains.size(); ++i) {
+                for (unsigned long int i=0; i<relatedChains.size(); ++i) {
 
                     // Wiggle each angle a bit
                     std::vector<double> angles = relatedChains[i]->getAngles();
                     prevAngles[i] = angles;
-                    for (int j=0; j<angles.size(); ++j) {
+                    for (unsigned long int j=0; j<angles.size(); ++j) {
                         angles[j] += currentTemp * ((rand() / (double)RAND_MAX)-0.5);
                     }
                     if (fixFirst) {
@@ -1359,7 +1446,7 @@ int main(int argc, char* argv[]) {
                 if (randVal < prob) {
                     prevObjective = overallObjective;
                 } else {
-                    for (int i=0; i<relatedChains.size(); ++i) {
+                    for (unsigned long int i=0; i<relatedChains.size(); ++i) {
                         relatedChains[i]->setAngles(prevAngles[i]);
                     }
                 }
@@ -1397,7 +1484,7 @@ int main(int argc, char* argv[]) {
 
                 // Set each angle to a random value
                 std::vector<double> angles = chain.getAngles();
-                for (int j=0; j<angles.size(); ++j) {
+                for (unsigned long int j=0; j<angles.size(); ++j) {
                     angles[j] = (rand() / (double)RAND_MAX) * 2.0 * M_PI;
                 }
                 if (fixFirst) {
@@ -1423,12 +1510,12 @@ int main(int argc, char* argv[]) {
                 checkDelta = 3.0;
 
                 // Adjust the lengths
-                int numDone = 0;
+                unsigned long int numDone = 0;
                 for (auto& chain : chains) {
                     std::vector<double> lengths = chain.getVectorLengths();
                     double deltaL = 0.5;
-                    for (int i=0; i<lengths.size(); ++i) {
-                        if (i >= d) {
+                    for (unsigned long int i=0; i<lengths.size(); ++i) {
+                        if (int(i) >= d) {
                             if (lengths[i] >= deltaL) {
                                 lengths[i] -= deltaL;
                             } else {
@@ -1458,7 +1545,7 @@ int main(int argc, char* argv[]) {
             // Calculate the objective
             double bestObjective = getObjective(chains);
             double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
             std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  len=" << chains[0].getVectorLengths()[1] << "     \r" << std::flush;
@@ -1470,14 +1557,14 @@ int main(int argc, char* argv[]) {
                 int numChanges = 0;
 
                 // For each non-fixed chain
-                for (int j=0; j<chains.size(); ++j) {
+                for (unsigned long int j=0; j<chains.size(); ++j) {
                     if (chains[j].isFixed()) {
                         continue;
                     }
 
                     // Check the effect of moving each direction
                     std::vector<double> angles = chains[j].getAngles();
-                    for (int k=0; k<angles.size(); ++k) {
+                    for (unsigned long int k=0; k<angles.size(); ++k) {
                         if (k == 0 && fixFirst) {
                             continue;
                         }
@@ -1537,7 +1624,7 @@ int main(int argc, char* argv[]) {
             // Calculate the objective
             double bestObjective = getObjective(chains);
             double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
             std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "     \r" << std::flush;
@@ -1549,14 +1636,14 @@ int main(int argc, char* argv[]) {
                 int numChanges = 0;
 
                 // For each non-fixed chain
-                for (int j=0; j<chains.size(); ++j) {
+                for (unsigned long int j=0; j<chains.size(); ++j) {
                     if (chains[j].isFixed()) {
                         continue;
                     }
 
                     // Check the effect of moving each direction
                     std::vector<double> angles = chains[j].getAngles();
-                    for (int k=0; k<angles.size(); ++k) {
+                    for (unsigned long int k=0; k<angles.size(); ++k) {
                         if (k == 0 && fixFirst) {
                             continue;
                         }
@@ -1620,7 +1707,7 @@ int main(int argc, char* argv[]) {
             // Calculate the objective
             double bestObjective = getObjective(chains);
             double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
             std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "     \r" << std::flush;
@@ -1632,15 +1719,15 @@ int main(int argc, char* argv[]) {
                 int numChanges = 0;
 
                 // For each non-fixed chain
-                for (int j=0; j<chains.size(); ++j) {
+                for (unsigned long int j=0; j<chains.size(); ++j) {
                     if (chains[j].isFixed()) {
                         continue;
                     }
 
                     // Check the effect of moving each direction
                     std::vector<double> angles = chains[j].getAngles();
-                    for (int k=0; k<angles.size(); ++k) {
-                        for (int k2=0; k2<angles.size(); ++k2) {
+                    for (unsigned long int k=0; k<angles.size(); ++k) {
+                        for (unsigned long int k2=0; k2<angles.size(); ++k2) {
                             if (k == 0 && fixFirst) {
                                 continue;
                             }
@@ -1759,7 +1846,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Update the angles based on this
-                for (int i=0; i<currentAngles.size(); ++i) {
+                for (unsigned long int i=0; i<currentAngles.size(); ++i) {
                     currentAngles[i] -= gradient[i] * alpha;
                 }
                 setAngles(chains, currentAngles);
@@ -1787,7 +1874,7 @@ int main(int argc, char* argv[]) {
                     bestObjective = 1e10;
                     for (auto& chain : chains) {
                         std::vector<double> angles = chain.getAngles();
-                        for (int j=0; j<angles.size(); ++j) {
+                        for (unsigned long int j=0; j<angles.size(); ++j) {
                             angles[j] = (rand() / (double)RAND_MAX) * 2.0 * M_PI;
                         }
                         if (fixFirst) {
@@ -1813,7 +1900,7 @@ int main(int argc, char* argv[]) {
             // Calculate the objective
             double bestObjective = getObjective(chains);
             double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
             std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  alpha=" << alpha << "     \r" << std::flush;
@@ -1834,7 +1921,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Update the angles based on this
-                for (int i=0; i<currentAngles.size(); ++i) {
+                for (unsigned long int i=0; i<currentAngles.size(); ++i) {
                     currentAngles[i] -= gradient[i] * alpha;
                 }
                 setAngles(chains, currentAngles);
@@ -1854,13 +1941,13 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-        // Perform gradient descent with the Hessian TODO
+        // Perform gradient descent with the Hessian
         } else if (mode == "gradient2") {
 
             // Calculate the objective
             double bestObjective = getObjective(chains);
             double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
             std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  alpha=" << alpha << "     \r" << std::flush;
@@ -1868,25 +1955,39 @@ int main(int argc, char* argv[]) {
             // Do a few iterations per display frame
             for (int j=0; j<itersPerFrame; j++) {
 
-                // Get the gradient and hessian TODO
+                // Get the gradient and hessian
                 std::vector<double> currentAngles = getAngles(chains);
                 Eigen::MatrixXd hessian = getHessian(chains, fixFirst);
                 Eigen::VectorXd gradient = getGradientEigen(chains, fixFirst);
                 double newObj = getObjectiveNoUpdate(chains);
-                std::cout << "hessian=\n" << hessian << std::endl;
+
+                // Check if it's PSD
+                Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(hessian);
+                Eigen::VectorXd eigenvalues = es.eigenvalues();
+                double minEigenvalue = eigenvalues.minCoeff();
 
                 // Get the search direction
-                Eigen::VectorXd direction = hessian.colPivHouseholderQr().solve(gradient);
+                Eigen::VectorXd direction = -gradient;
+                if (minEigenvalue >= 0.0) {
+                    direction = hessian.colPivHouseholderQr().solve(-gradient);
+                }
+
+                std::cout << "hessian=\n" << hessian << std::endl;
+                std::cout << "min eigenvalue=" << minEigenvalue << std::endl;
+                std::cout << "gradient=\n" << gradient << std::endl;
+                std::cout << "direction=\n" << direction << std::endl;
+                modes.erase(modes.begin());
+                break;
 
                 // Decrease alpha if we need to
-                if (std::isnan(newObj) || newObj > bestObjective || direction.norm() < 1e-20 || std::abs(newObj - bestObjective) < 1e-20) {
+                if (std::isnan(newObj) || newObj > bestObjective - 1e-10) {
                     alpha *= 0.8;
                 } else {
                     bestObjective = newObj;
                 }
 
                 // Update the angles based on this
-                for (int i=0; i<currentAngles.size(); ++i) {
+                for (unsigned long int i=0; i<currentAngles.size(); ++i) {
                     currentAngles[i] += direction[i] * alpha;
                 }
                 setAngles(chains, currentAngles);
@@ -1898,6 +1999,35 @@ int main(int argc, char* argv[]) {
                 }
 
             }
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // Use the optim library TODO
+        } else if (mode == "optim") {
+
+            // Only do this once
+            modes.erase(modes.begin());
+
+            Eigen::VectorXd x = getAnglesEigen(chains);
+
+            optim::algo_settings_t settings;
+            settings.print_level = 1;
+            settings.iter_max = 10000000;
+
+            ll_data_t opt_data;
+            opt_data.chains = &chains;
+            opt_data.fixFirst = fixFirst;
+
+            bool success = optim::bfgs(x, optFunc, &opt_data, settings);
+            //bool success = optim::nm(x, optFunc, &opt_data, settings);
+            //bool success = optim::gd(x, optFunc, &opt_data, settings);
+            //bool success = optim::cg(x, optFunc, &opt_data, settings);
+            std::cout << "success = " << success << std::endl;
 
             // Update the visuals
             if (visual) {
@@ -1922,23 +2052,23 @@ int main(int argc, char* argv[]) {
 
                     // Generate a random vector
                     std::vector<double> randVec;
-                    for (int j=0; j<bestMinimaAngles.size(); ++j) {
+                    for (unsigned long int j=0; j<bestMinimaAngles.size(); ++j) {
                         randVec.push_back(rand() / double(RAND_MAX) * 2.0 * M_PI);
                     }
 
                     // Normalise the vector to have a mag of delMinima
                     double norm = 0.0;
-                    for (int j=0; j<randVec.size(); ++j) {
+                    for (unsigned long int j=0; j<randVec.size(); ++j) {
                         norm += randVec[j] * randVec[j];
                     }
                     norm = sqrt(norm);
-                    for (int j=0; j<randVec.size(); ++j) {
+                    for (unsigned long int j=0; j<randVec.size(); ++j) {
                         randVec[j] *= delMinima / norm;
                     }
 
                     // Add the test angles
                     std::vector<double> testAngles = bestMinimaAngles;
-                    for (int j=0; j<randVec.size(); ++j) {
+                    for (unsigned long int j=0; j<randVec.size(); ++j) {
                         testAngles[j] += randVec[j];
                     }
                     anglesToTest.push_back(testAngles);
@@ -1954,7 +2084,7 @@ int main(int argc, char* argv[]) {
             // Calculate the objective
             double bestObjective = getObjective(chains);
             double maxDiff = 0.0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 maxDiff = std::max(maxDiff, chains[i].getObjective());
             }
             std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  ind=" << angleIndex << "  del=" << delMinima << "  bst=" << bestMinimaValue << "     \r" << std::flush;
@@ -1972,14 +2102,14 @@ int main(int argc, char* argv[]) {
                 int numChanges = 0;
 
                 // For each non-fixed chain
-                for (int j=0; j<chains.size(); ++j) {
+                for (unsigned long int j=0; j<chains.size(); ++j) {
                     if (chains[j].isFixed()) {
                         continue;
                     }
 
                     // Check the effect of moving each direction
                     std::vector<double> angles = chains[j].getAngles();
-                    for (int k=0; k<angles.size(); ++k) {
+                    for (unsigned long int k=0; k<angles.size(); ++k) {
                         if (k == 0 && fixFirst) {
                             continue;
                         }
@@ -2034,7 +2164,7 @@ int main(int argc, char* argv[]) {
                         // Otherwise try a different direction
                         } else {
                             angleIndex++;
-                            if (angleIndex >= anglesToTest.size()) {
+                            if (angleIndex >= int(anglesToTest.size())) {
                                 delMinima *= 10;
                                 anglesToTest.clear();
                             } else {
@@ -2066,7 +2196,7 @@ int main(int argc, char* argv[]) {
             std::vector<double> uniqueAngles;
             int numUnique = 0;
             int numTotal = 0;
-            for (int i=0; i<chains.size(); ++i) {
+            for (unsigned long int i=0; i<chains.size(); ++i) {
                 std::vector<double> angles = chains[i].getAngles();
                 for (auto& angle : angles) {
                     while (angle < 0.0) {
@@ -2123,10 +2253,9 @@ int main(int argc, char* argv[]) {
 
             // Get various numbers
             int numVectors = 0;
-            for (int i=1; i<N.size(); i++) {
+            for (unsigned long int i=1; i<N.size(); i++) {
                 numVectors += N[i];
             }
-            int numChains = chains.size();
             int numAnglesPer = N[0];
             std::vector<std::vector<double>> trueAngles(numVectors, std::vector<double>(numAnglesPer, 0.0));
 
@@ -2134,7 +2263,7 @@ int main(int argc, char* argv[]) {
             for (int i=0; i<N[0]; i++) {
 
                 // For each chain, we have chain_12 = theta_1 + theta_2
-                for (int j=0; j<chains.size(); j++) {
+                for (unsigned long int j=0; j<chains.size(); j++) {
                     std::pair<int, int> vecIndices = chains[j].getVecIndices();
                     double angle = chains[j].getAngles()[i];
                     while (angle > 2.0*M_PI) {
@@ -2220,7 +2349,7 @@ int main(int argc, char* argv[]) {
             for (auto& chain : chains) {
                 chain.draw(window, font);
             }
-            for (int i=0; i<buttons.size(); ++i) {
+            for (unsigned long int i=0; i<buttons.size(); ++i) {
                 window.draw(buttons[i]);
                 window.draw(buttonTexts[i]);
             }

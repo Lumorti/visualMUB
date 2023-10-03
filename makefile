@@ -4,10 +4,11 @@ CXX = g++
 # Compiler flags 
 CXXFLAGS = -std=c++11 -fmax-errors=2 
 FASTFLAGS = -O3 
-DEBUGFLAGS = -pg -g -O0 -Wall
+DEBUGFLAGS = -g -O0 -Wall
 
 # Linker flags
-LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -I/usr/include/eigen3
+LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -I/usr/include/eigen3 -I/home/luke/optim/header_only_version/ -loptim
+#LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -I/usr/include/eigen3 -I/usr/local/include/optim/ -loptim
 
 # The name of your output program
 OUTPUT = run
