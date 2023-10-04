@@ -692,6 +692,22 @@ void setAngles(std::vector<Chain>& chains, std::vector<double> angles) {
 
 }
 
+// Given a list of chains, set the angles
+void setAngles(std::vector<Chain>& chains, Eigen::VectorXd angles) {
+
+    // Set the angles for each chain
+    int index = 0;
+    for (unsigned long int i = 0; i < chains.size(); ++i) {
+        if (chains[i].isFixed()) {
+            continue;
+        }
+        std::vector<double> chainAngles(angles.begin() + index, angles.begin() + index + chains[i].getAngles().size());
+        chains[i].setAngles(chainAngles);
+        index += chains[i].getAngles().size();
+    }
+
+}
+
 // Data structure to pass along to the below function
 struct ll_data_t {
     std::vector<Chain>* chains;
@@ -2023,11 +2039,19 @@ int main(int argc, char* argv[]) {
             opt_data.chains = &chains;
             opt_data.fixFirst = fixFirst;
 
-            bool success = optim::bfgs(x, optFunc, &opt_data, settings);
+            //bool success = optim::bfgs(x, optFunc, &opt_data, settings);
+            bool success = optim::lbfgs(x, optFunc, &opt_data, settings);
+            //bool success = optim::pso(x, optFunc, &opt_data, settings);
+            //bool success = optim::de(x, optFunc, &opt_data, settings);
             //bool success = optim::nm(x, optFunc, &opt_data, settings);
             //bool success = optim::gd(x, optFunc, &opt_data, settings);
             //bool success = optim::cg(x, optFunc, &opt_data, settings);
             std::cout << "success = " << success << std::endl;
+
+            // Run the final values
+            setAngles(chains, x);
+            double finalObj = getObjective(chains);
+            std::cout << "finalObj = " << finalObj << std::endl;
 
             // Update the visuals
             if (visual) {
