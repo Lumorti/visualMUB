@@ -183,6 +183,7 @@ run () {
     ./run -N $1 -v --optimshotgun -p 5000 | tee data/temp$withDashes.log
     mv data/temp$withDashes.log data/$withDashes.log
 }
+export -f run
 #count=0
 #for i in $toTry; do
     #run $i &
