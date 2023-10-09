@@ -171,16 +171,6 @@ toTry="
         10,5,5,5
         10,10,10
         10,1,1,1,1,1,1,1,1,1,1
-        16,6,6,6
-        18,6,6,6
-        20,6,6,6
-        20,3,3,3
-        20,10,2,2
-        20,1,1,1,1,1,1,1,1,1,1
-        50,6,6,6
-        50,1,1,1,1,1,1,1,1,1,1
-        100,6,6,6
-        100,1,1,1,1,1,1,1,1,1,1
       "
 rm -f data/temp*
 run () {
@@ -190,14 +180,22 @@ run () {
         return
     fi
     echo "Running $1"
-    ./run -N $1 -v --shotgun | tee data/temp$withDashes.log
+    ./run -N $1 -v --optimshotgun -p 5000 | tee data/temp$withDashes.log
     mv data/temp$withDashes.log data/$withDashes.log
 }
-for i in $toTry; do
-    run $i &
-done
-wait
+#count=0
+#for i in $toTry; do
+    #run $i &
+    #count=$((count+1))
+    #if (( count = 16 )); then
+        #echo "Ran all processes, waiting for them to finish"
+        #wait
+        #count=0
+    #fi
+#done
+#wait
+parallel run ::: $toTry
 rm -f data/temp*
 git add .
-git commit -m "Added data files"
+git commit -m "Automatically pushed data files"
 git push

@@ -714,7 +714,7 @@ struct ll_data_t {
     bool fixFirst;
 };
 
-// The function used by the optim library TODO
+// The function used by the optim library TODO optimize this a big
 double optFunc(const Eigen::VectorXd& inputVals, Eigen::VectorXd* gradOut, void* optData) {
 
     // Extract the params needed
@@ -828,7 +828,9 @@ int main(int argc, char* argv[]) {
             std::cout << "  --outputTrueDeg    Output the true angles in degrees" << std::endl;
             std::cout << "  --outputVectors    Output the true MU vectors" << std::endl;
             std::cout << "  --gradient         Perform gradient descent" << std::endl;
-            std::cout << "  --shotgun          Perform gradient descent from many points" << std::endl;
+            std::cout << "  --optim            Use the optim library to minimize" << std::endl;
+            std::cout << "  --shotgun          Run gradient descent from many points" << std::endl;
+            std::cout << "  --optimshotgun     Run optim from many points" << std::endl;
             std::cout << "  --minima           Travel in the direction of decreasing local minima" << std::endl;
             std::cout << "  --decrease         Decrease the dimension by one, adiabatically" << std::endl;
             std::cout << "  --stop             Stop, closing the window" << std::endl;
@@ -859,7 +861,7 @@ int main(int argc, char* argv[]) {
         } else if (std::string(argv[i]) == "-I") {
             stepsPartial = std::stoi(argv[i + 1]);
 
-        // If setting the number of times to anneal
+        // If setting the number of times to anneal or shotgun
         } else if (std::string(argv[i]) == "-p") {
             maxIters = std::stoi(argv[i + 1]);
 
@@ -983,6 +985,7 @@ int main(int argc, char* argv[]) {
                                     "gradient", 
                                     "gradient2", 
                                     "optim", 
+                                    "optimshotgun", 
                                     "shotgun", 
                                     "annealFull", 
                                     "annealPartial", 
@@ -1222,19 +1225,24 @@ int main(int argc, char* argv[]) {
     while (window.isOpen() || !visual) {
 
         // Get the change in time, based on this do more iters per frame
-        sf::Time elapsed = clock.getElapsedTime();
-        clock.restart();
-        fps = 1.0 / elapsed.asSeconds();
-        if (fps > 10) {
-            itersPerFrame += 5;
-        } else if (itersPerFrame > 1) {
-            itersPerFrame -= 1;
+        if (visual) {
+            sf::Time elapsed = clock.getElapsedTime();
+            clock.restart();
+            fps = 1.0 / elapsed.asSeconds();
+            if (fps > 10) {
+                itersPerFrame += 5;
+            } else if (itersPerFrame > 1) {
+                itersPerFrame -= 1;
+            }
+            if (modes.size() == 0) {
+                itersPerFrame = 0;
+            } 
+            fpsCounter.setString("FPS: " + std::to_string(fps));
+            iterCounter.setString("iters per frame: " + std::to_string(itersPerFrame));
+        } else {
+            itersPerFrame = 100000000;
+            fps = 0;
         }
-        if (modes.size() == 0) {
-            itersPerFrame = 0;
-        } 
-        fpsCounter.setString("FPS: " + std::to_string(fps));
-        iterCounter.setString("iters per frame: " + std::to_string(itersPerFrame));
 
 		// Process events
         sf::Event event;
@@ -1880,7 +1888,7 @@ int main(int argc, char* argv[]) {
                         totalObjectiveLog += std::log10(bestObjective);
                     }
                     std::cout << "s=" << bestObjective << " a=" << alpha << " c= " << numConverged << " / " << numPerformed << "  " << chains.size() << " " << numFree << " " << numFree*d << "     \n" << std::flush;
-                    if (numPerformed >= 1000) {
+                    if (numPerformed >= maxIters) {
                         modes.erase(modes.begin());
                         break;
                     }
@@ -2023,35 +2031,95 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-        // Use the optim library TODO
+        // Use the optim library
         } else if (mode == "optim") {
 
             // Only do this once
             modes.erase(modes.begin());
 
+            // Start from the current angles
             Eigen::VectorXd x = getAnglesEigen(chains);
 
+            // Settings for optim
             optim::algo_settings_t settings;
             settings.print_level = 1;
             settings.iter_max = 10000000;
 
+            // The data object passed to the optim function
             ll_data_t opt_data;
             opt_data.chains = &chains;
             opt_data.fixFirst = fixFirst;
 
-            //bool success = optim::bfgs(x, optFunc, &opt_data, settings);
+            // Run the optimisation
             bool success = optim::lbfgs(x, optFunc, &opt_data, settings);
-            //bool success = optim::pso(x, optFunc, &opt_data, settings);
-            //bool success = optim::de(x, optFunc, &opt_data, settings);
-            //bool success = optim::nm(x, optFunc, &opt_data, settings);
-            //bool success = optim::gd(x, optFunc, &opt_data, settings);
-            //bool success = optim::cg(x, optFunc, &opt_data, settings);
             std::cout << "success = " << success << std::endl;
 
             // Run the final values
             setAngles(chains, x);
             double finalObj = getObjective(chains);
             std::cout << "finalObj = " << finalObj << std::endl;
+
+            // Update the visuals
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].updatePointsAndLines();
+                }
+            }
+
+        // Use the optim library TODO
+        } else if (mode == "optimshotgun") {
+
+            // Calculate the objective
+            double bestObjective = getObjective(chains);
+            std::cout << std::setprecision(4);
+
+            // Do a few iterations per display frame
+            for (int j=0; j<itersPerFrame; j++) {
+
+                // Start from the current angles
+                Eigen::VectorXd x = getAnglesEigen(chains);
+
+                // Settings for optim
+                optim::algo_settings_t settings;
+                settings.print_level = 0;
+                settings.iter_max = 10000;
+
+                // The data object passed to the optim function
+                ll_data_t opt_data;
+                opt_data.chains = &chains;
+                opt_data.fixFirst = fixFirst;
+
+                // Run the optimisation
+                bool success = optim::lbfgs(x, optFunc, &opt_data, settings);
+
+                // Run the final values
+                setAngles(chains, x);
+                double finalObj = getObjective(chains);
+                if (finalObj < bestObjective) {
+                    bestObjective = finalObj;
+                }
+                numPerformed++;
+                std::cout << "sqr= " << finalObj << "  bst= " << bestObjective << "  num= " << numPerformed << "  per=" << itersPerFrame << "  inf= " << chains.size() << " " << numFree << " " << numFree*d << "     \n" << std::flush;
+
+                // Start again with random angles
+                for (auto& chain : chains) {
+                    std::vector<double> angles = chain.getAngles();
+                    for (unsigned long int j=0; j<angles.size(); ++j) {
+                        angles[j] = (rand() / (double)RAND_MAX) * 2.0 * M_PI;
+                    }
+                    if (fixFirst) {
+                        angles[0] = 0.0;
+                    }
+                    chain.setAngles(angles);
+                }
+
+                // If we've done enough
+                if (numPerformed >= maxIters) {
+                    modes.erase(modes.begin());
+                    break;
+                }
+
+            }
 
             // Update the visuals
             if (visual) {
