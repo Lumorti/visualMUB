@@ -1,6 +1,6 @@
 #!/bin/bash
 
-mkdir -p data
+# The list of all the possible combinations of the parameters
 toTry="
         2,2 
         2,3
@@ -172,31 +172,36 @@ toTry="
         10,10,10
         10,1,1,1,1,1,1,1,1,1,1
       "
+
+# Set up data directory
+mkdir -p data
 rm -f data/temp*
+
+# Define function to run
 run () {
+
+    # Check if we already have this one
     withDashes=$(echo $1 | sed 's/,/-/g')
     if [ -f data/$withDashes.log ]; then
         echo "Already have $1"
         return
     fi
+
+    # Run the input
     echo "Running $1"
     ./run -N $1 -v --optimshotgun -p 5000 | tee data/temp$withDashes.log
     mv data/temp$withDashes.log data/$withDashes.log
+
 }
+
+# Run in parallel
 export -f run
-#count=0
-#for i in $toTry; do
-    #run $i &
-    #count=$((count+1))
-    #if (( count = 16 )); then
-        #echo "Ran all processes, waiting for them to finish"
-        #wait
-        #count=0
-    #fi
-#done
-#wait
-parallel run ::: $toTry
+parallel -j 16 run ::: $toTry
+
+# Clean up
 rm -f data/temp*
+
+# Push to github
 git add .
 git commit -m "Automatically pushed data files"
 git push

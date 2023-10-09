@@ -714,7 +714,7 @@ struct ll_data_t {
     bool fixFirst;
 };
 
-// The function used by the optim library TODO optimize this a big
+// The function used by the optim library
 double optFunc(const Eigen::VectorXd& inputVals, Eigen::VectorXd* gradOut, void* optData) {
 
     // Extract the params needed
@@ -2082,7 +2082,7 @@ int main(int argc, char* argv[]) {
                 // Settings for optim
                 optim::algo_settings_t settings;
                 settings.print_level = 0;
-                settings.iter_max = 10000;
+                settings.iter_max = 1000;
 
                 // The data object passed to the optim function
                 ll_data_t opt_data;
