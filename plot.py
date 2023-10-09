@@ -31,12 +31,17 @@ for i in range(len(dataFiles)):
                 lastLine = data[-j]
                 break
 
+        # Get each unique run
         finalValues = []
         for j in range(len(data)):
-            if "s=" in data[j] and "DELETE" not in data[j] and "nan" not in data[j]:
-                finalValues.append(float(data[j].split(" ")[0][2:]))
+            if "inf" in data[j]:
+                if "sqr=" in data[j] and "DELETE" not in data[j] and "nan" not in data[j]:
+                    finalValues.append(float(data[j].split(" ")[1]))
+            else:
+                if "s=" in data[j] and "DELETE" not in data[j] and "nan" not in data[j]:
+                    finalValues.append(float(data[j].split(" ")[0][2:]))
 
-        # calculate statistics
+        # Calculate statistics
         avg = sum(finalValues) / len(finalValues)
         std = (sum([(a-avg)**2 for a in finalValues]) / len(finalValues))**0.5
         err = std / (len(finalValues)**0.5)
@@ -46,24 +51,45 @@ for i in range(len(dataFiles)):
         # Parse the line
         lastLine = lastLine.strip().replace("  ", " ")
         lineSplit = lastLine.split(" ")
-        infoObj = {
-                "filename": dataFiles[i],
-                "numGlobal": int(lineSplit[3]),
-                "numTotal": int(lineSplit[5]),
-                "numLocal": int(lineSplit[5]) - int(lineSplit[3]),
-                "numChains": int(lineSplit[6]),
-                "numFreeChains": int(lineSplit[7]),
-                "numFixedChains": int(lineSplit[6]) - int(lineSplit[7]),
-                "numFreeVars": int(lineSplit[8]),
-                "averageObjective": avg,
-                "standardDeviation": std,
-                "error": err,
-                "max": maxVal,
-                "min": minVal,
-                "dimension": int(int(lineSplit[8]) / int(lineSplit[7])),
-                "setSizes": [int(a) for a in dataFiles[i][:-4].split("-")],
-                "knownInfeasible": False,
-            }
+        if "inf" in lastLine:
+            numLocal = sum([1 for a in finalValues if abs(minVal-a) < 1e-5])
+            infoObj = {
+                    "filename": dataFiles[i],
+                    "numTotal": len(finalValues),
+                    "numGlobal": numLocal,
+                    "numLocal": numLocal,
+                    "numChains": int(lineSplit[8]),
+                    "numFreeChains": int(lineSplit[9]),
+                    "numFixedChains": int(lineSplit[8]) - int(lineSplit[9]),
+                    "numFreeVars": int(lineSplit[10]),
+                    "averageObjective": avg,
+                    "standardDeviation": std,
+                    "error": err,
+                    "max": maxVal,
+                    "min": minVal,
+                    "dimension": int(int(lineSplit[10]) / int(lineSplit[9])),
+                    "setSizes": [int(a) for a in dataFiles[i][:-4].split("-")],
+                    "knownInfeasible": False,
+                }
+        else:
+            infoObj = {
+                    "filename": dataFiles[i],
+                    "numGlobal": int(lineSplit[3]),
+                    "numTotal": int(lineSplit[5]),
+                    "numLocal": int(lineSplit[5]) - int(lineSplit[3]),
+                    "numChains": int(lineSplit[6]),
+                    "numFreeChains": int(lineSplit[7]),
+                    "numFixedChains": int(lineSplit[6]) - int(lineSplit[7]),
+                    "numFreeVars": int(lineSplit[8]),
+                    "averageObjective": avg,
+                    "standardDeviation": std,
+                    "error": err,
+                    "max": maxVal,
+                    "min": minVal,
+                    "dimension": int(int(lineSplit[8]) / int(lineSplit[7])),
+                    "setSizes": [int(a) for a in dataFiles[i][:-4].split("-")],
+                    "knownInfeasible": False,
+                }
         if len(infoObj["setSizes"]) > infoObj["dimension"]+1:
             infoObj["knownInfeasible"] = True
         for size in infoObj["setSizes"]:
@@ -87,8 +113,6 @@ for dim in dimsUsed:
     yFeasible = [d["averageObjective"] for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
     labelsFeasible = [d["filename"] for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
     labelsInfeasible = [d["filename"] for d in info if d["knownInfeasible"] and d["dimension"] == dim]
-    errorsFeasible = [d["standardDeviation"] for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
-    errorsInfeasible = [d["standardDeviation"] for d in info if d["knownInfeasible"] and d["dimension"] == dim]
     deltaPlusFeasible = [abs(d["max"]-d["averageObjective"]) for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
     deltaPlusInfeasible = [abs(d["max"]-d["averageObjective"]) for d in info if d["knownInfeasible"] and d["dimension"] == dim]
     deltaMinusFeasible = [abs(d["min"]-d["averageObjective"]) for d in info if not d["knownInfeasible"] and d["dimension"] == dim]
@@ -96,7 +120,6 @@ for dim in dimsUsed:
     trace1 = go.Scatter(
                       x=xFeasible,
                       y=yFeasible,
-                      # error_y={"array": errorsFeasible},
                       error_y={"array": deltaPlusFeasible, "arrayminus": deltaMinusFeasible, "symmetric": False},
                       mode='markers',
                       hovertext=labelsFeasible,
@@ -108,7 +131,6 @@ for dim in dimsUsed:
                       y=yInfeasible,
                       mode='markers',
                       hovertext=labelsInfeasible,
-                      # error_y={"array": errorsInfeasible},
                       error_y={"array": deltaPlusInfeasible, "arrayminus": deltaMinusInfeasible, "symmetric": False},
                       fillcolor="red",
                       name='infeasible dim=' + str(dim)
