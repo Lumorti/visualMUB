@@ -5,7 +5,7 @@ CXX = g++
 CXXFLAGS = -std=c++11 -fmax-errors=2 
 FASTFLAGS = -O3 
 DEBUGFLAGS = -g -O0 -Wall
-OPTIMPATH = $(HOME)/optim/header_only_version/
+OPTIMPATH = $(HOME)/Libraries/optim/header_only_version/
 
 # Linker flags
 LDFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -I/usr/include/eigen3 -I$(OPTIMPATH)

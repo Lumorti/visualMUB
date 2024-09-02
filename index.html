@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Visual MUBs</title>
+<style>
+
+body {
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+}
+
+canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+button {
+    position:absolute;
+    font-size: 15px;
+}
+
+</style>
+<script>
+
+// Global vars
+let d = 2;
+let n = 3;
+let sizes = [2,2,2];
+let canvas = null;
+let ctx = null;
+let sizeChanged = true;
+let problemChanged = true;
+let oldD = d;
+let oldN = n;
+let oldSizes = sizes.slice();
+let chains = [];
+let angles = [];
+
+// Called at the start
+function onLoad() {
+
+    // Initialize the canvas
+    canvas = document.getElementById("canv");
+    ctx = canvas.getContext("2d");
+    updateCanvas();
+
+}
+
+// Called every frame
+function updateCanvas() {
+
+    // Ensure all variables are valid
+    if (d < 1) {
+        d = 1;
+    }
+    if (n < 2) {
+        n = 2;
+    }
+    while (sizes.length < n) {
+        sizes.push(d);
+    }
+    if (sizes.length > n) {
+        sizes = sizes.slice(0, n);
+    }
+    sizes[0] = d;
+    for (let i=0; i<n; i++) {
+        if (sizes[i] < 1) {
+            sizes[i] = 1;
+        }
+        if (sizes[i] > d) {
+            sizes[i] = d;
+        }
+    }
+
+    // Check if anything changed
+    if (d != oldD || n != oldN || sizes != oldSizes) {
+        problemChanged = true;
+    }
+    if (canvas.width != window.innerWidth || canvas.height != window.innerHeight) {
+        sizeChanged = true;
+    }
+    oldD = d;
+    oldN = n;
+    oldSizes = sizes.slice();
+
+    // Some render params
+    let x = 40;
+    let y = 40;
+    let plusOffset = 20;
+    let minusOffset = -25;
+    let sep = 90;
+
+    // If we changed the size of the window, adjust the canvas stuff
+    if (sizeChanged || problemChanged) {
+
+        // Clear the canvas
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw the settings
+        ctx.fillStyle = "#000000";
+        ctx.font = "20px Arial";
+        ctx.fillText("dimension", x, y);
+        ctx.fillText(d, x+40, y+30);
+        ctx.fillText("bases", x+140, y);
+        ctx.fillText(n, x+160, y+30);
+        ctx.fillText("basis sizes", x+260, y);
+        for (let i=0; i<n; i++) {
+            ctx.fillText(sizes[i], x+280+sep*i, y+30);
+        }
+
+        // Finished
+        sizeChanged = false;
+
+    }
+
+    // If we changed the problem, adjust the buttons
+    if (problemChanged) {
+
+        // Clear all buttons
+        let buttons = document.getElementsByTagName("button");
+        while (buttons.length > 0) {
+            buttons[0].parentNode.removeChild(buttons[0]);
+        }
+
+        // Buttons for dimension
+        let newButton = document.createElement("button");
+        newButton.innerHTML = "+";
+        newButton.style.left = x+40+plusOffset+"px";
+        newButton.style.top = y+13+"px";
+        newButton.onclick = function() { d++; updateCanvas(); };
+        document.body.appendChild(newButton);
+        if (d > 1) {
+            let newButton2 = document.createElement("button");
+            newButton2.innerHTML = "-";
+            newButton2.style.left = x+40+minusOffset+"px";
+            newButton2.style.top = y+13+"px";
+            newButton2.onclick = function() { d--; updateCanvas(); };
+            document.body.appendChild(newButton2);
+        }
+
+        // Buttons for bases
+        let newButton3 = document.createElement("button");
+        newButton3.innerHTML = "+";
+        newButton3.style.left = x+160+plusOffset+"px";
+        newButton3.style.top = y+13+"px";
+        newButton3.onclick = function() { n++; updateCanvas(); };
+        document.body.appendChild(newButton3);
+        if (n > 1) {
+            let newButton4 = document.createElement("button");
+            newButton4.innerHTML = "-";
+            newButton4.style.left = x+160+minusOffset+"px";
+            newButton4.style.top = y+13+"px";
+            newButton4.onclick = function() { n--; updateCanvas(); };
+            document.body.appendChild(newButton4);
+        }
+
+        // Buttons for sizes
+        for (let i=1; i<n; i++) {
+            if (sizes[i] < d) {
+                let newButton5 = document.createElement("button");
+                newButton5.innerHTML = "+";
+                newButton5.style.left = x+280+sep*i+plusOffset+"px";
+                newButton5.style.top = y+13+"px";
+                newButton5.onclick = function() { sizes[i]++; updateCanvas(); };
+                document.body.appendChild(newButton5);
+            }
+            if (sizes[i] > 1) {
+                let newButton6 = document.createElement("button");
+                newButton6.innerHTML = "-";
+                newButton6.style.left = x+280+sep*i+minusOffset+"px";
+                newButton6.style.top = y+13+"px";
+                newButton6.onclick = function() { sizes[i]--; updateCanvas(); };
+                document.body.appendChild(newButton6);
+            }
+        }
+
+        // Define scaling and spacing
+        let scaling = 80.0;
+        let spacing = scaling * 3.0;
+        let minX = 0;
+        let minY = 0;
+        let maxX = 0;
+        let maxY = 0;
+
+        // Loop through the N array
+        chains = [];
+        for (let i = 1; i < sizes.length; i++) {
+            let NSoFarI = 0;
+            for (let m = 1; m < i; m++) {
+                NSoFarI += sizes[m];
+            }
+            for (let j = i; j < sizes.length; j++) {
+                let NSoFarJ = 0;
+                for (let m = 1; m < j; m++) {
+                    NSoFarJ += sizes[m];
+                }
+                for (let k = 0; k < sizes[i]; k++) {
+                    for (let l = 0; l < sizes[j]; l++) {
+
+                        // The location of the chain
+                        let gridY = NSoFarI + k;
+                        let gridX = NSoFarJ + l;
+                        let currentX = gridX * spacing;
+                        let currentY = gridY * spacing;
+
+                        // Only the upper triangle
+                        if (gridX <= gridY) {
+                            continue;
+                        }
+
+                        // Update the min and max values
+                        minX = Math.min(minX, currentX);
+                        minY = Math.min(minY, currentY);
+                        maxX = Math.max(maxX, currentX);
+                        maxY = Math.max(maxY, currentY);
+
+                        // Orthogonality
+                        if (i === j) {
+                            chains.push({x: currentX, y: currentY, size: Math.sqrt(d) * scaling / d, target: 0.0});
+
+                        // Mutually unbiasedness
+                        } else {
+                            chains.push({x: currentX, y: currentY, size: Math.sqrt(d) * scaling / d, target: scaling});
+                        }
+
+                    }
+                }
+            }
+        }
+
+        // Add the angles
+        while (angles.length < chains.length) {
+            angles.push([]);
+        }
+        if (angles.length > chains.length) {
+            angles = angles.slice(0, chains.length);
+        }
+        for (let i = 0; i < angles.length; i++) {
+            while (angles[i].length < d) {
+                angles[i].push(Math.random() * 2 * Math.PI);
+            }
+            if (angles[i].length > d) {
+                angles[i] = angles[i].slice(0, d);
+            }
+        }
+
+        // Finished
+        problemChanged = false;
+    
+    }
+
+    // Draw the chains
+    let offsetX = 0;
+    let offsetY = 200;
+    for (let i = 0; i < chains.length; i++) {
+        let currentX = chains[i].x;
+        let currentY = chains[i].y;
+        for (let j = 0; j < d; j++) {
+            let angle = angles[i][j];
+            let targetX = currentX + chains[i].size * Math.cos(angle);
+            let targetY = currentY + chains[i].size * Math.sin(angle);
+            ctx.beginPath();
+            ctx.moveTo(currentX + offsetX, currentY + offsetY);
+            ctx.lineTo(targetX + offsetX, targetY + offsetY);
+            ctx.strokeStyle = "rgba(0, 0, 0, 1.0)";
+            ctx.stroke();
+            currentX = targetX;
+            currentY = targetY;
+            // Draw a circle at the end
+            ctx.beginPath();
+            ctx.arc(currentX + offsetX, currentY + offsetY, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = "rgba(0, 0, 0, 1.0)";
+            ctx.fill();
+        }
+        // draw the radius
+        ctx.beginPath();
+        ctx.arc(chains[i].x + offsetX, chains[i].y + offsetY, chains[i].target, 0, 2 * Math.PI);
+        ctx.strokeStyle = "rgba(0, 0, 0, 1.0)";
+        ctx.stroke();
+    }
+
+}
+
+// TODO mouse events on canvas
+
+// TODO linear reduction from c++
+
+// TODO constraints
+
+</script>
+</head>
+
+<body onload="onLoad()" onresize="updateCanvas()">
+    <canvas id="canv"></canvas>
+</body>
+
+</html>
+
