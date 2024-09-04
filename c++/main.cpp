@@ -775,8 +775,9 @@ int main(int argc, char* argv[]) {
 
 	// Settings
 	int d = -1;
-	std::vector<int> N = {d, 1, 1, 1};
+	std::vector<int> N = {2, 2, 2};
 	bool fixFirst = true;
+    bool verbose = false;
     std::vector<std::string> modes;
 	double startTemp = 1.0;
 	int stepsFull = 100000;
@@ -806,7 +807,7 @@ int main(int argc, char* argv[]) {
 			N.push_back(std::stoi(NString));
 
 		// If asked to display the help
-		} else if (std::string(argv[i]) == "-h") {
+		} else if (std::string(argv[i]) == "-h" || std::string(argv[i]) == "--help") {
 			std::cout << "Usage: " << argv[0] << std::endl;
 			std::cout << "General args: " << argv[0] << std::endl;
 			std::cout << "  -N <basis sizes>   Comma seperated list of basis sizes, first is dimension" << std::endl; 
@@ -816,6 +817,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  -I <int>           Set the number of partial anneal steps" << std::endl;
             std::cout << "  -p <int>           Set the number of times to anneal" << std::endl;
             std::cout << "  -d <int>           Set the dimension (changing only the radii)" << std::endl;
+            std::cout << "  -V                 Verbose output" << std::endl;
             std::cout << "  -v                 Disable visualisation" << std::endl;
 			std::cout << "Stackable args: " << argv[0] << std::endl;
             std::cout << "  --annealFull       Anneal all the chains at once" << std::endl;
@@ -839,6 +841,10 @@ int main(int argc, char* argv[]) {
 		// If told not to fix the first angle
 		} else if (std::string(argv[i]) == "-1") {
 			fixFirst = false;
+
+        // If told to be verbose
+        } else if (std::string(argv[i]) == "-V") {
+            verbose = true;
 
         // If setting the starting temperature
         } else if (std::string(argv[i]) == "-t") {
@@ -1057,7 +1063,7 @@ int main(int argc, char* argv[]) {
 	A.conservativeResize(nextInd, Eigen::NoChange);
 
     // Print if it's not too big
-    if (std::max(A.rows(), A.cols()) < 20) {
+    if (std::max(A.rows(), A.cols()) < 20 || verbose) {
         std::cout << "Original matrix:" << std::endl;
         std::cout << A << std::endl;
     }
@@ -1076,6 +1082,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
+        std::cout << i << " " << nonZeroInd << std::endl;
 
         // If there is no non-zero element, skip this column
         if (nonZeroInd == -1) {
@@ -1095,7 +1102,7 @@ int main(int argc, char* argv[]) {
     }
 
     // If the matrix isn't too big
-    if (std::max(reducedA.rows(), reducedA.cols()) < 20) {
+    if (std::max(reducedA.rows(), reducedA.cols()) < 20 || verbose) {
         std::cout << "Reduced matrix:" << std::endl;
         std::cout << reducedA << std::endl;
     }

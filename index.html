@@ -97,6 +97,7 @@ function updateCanvas() {
     // Check if anything changed
     if (d != oldD || n != oldN || JSON.stringify(sizes) != JSON.stringify(oldSizes)) {
         problemChanged = true;
+        console.log("problem changed");
     }
     if (canvas.width != window.innerWidth || canvas.height != window.innerHeight) {
         sizeChanged = true;
@@ -140,8 +141,6 @@ function updateCanvas() {
         ctx.fillText(sizes[i], x+280+sep*i, y+30);
     }
 
-    // TODO error, some cases are feasible that shouldn't be 
-
     // Draw a line between each text
     ctx.strokeStyle = "#000000";
     ctx.beginPath();
@@ -168,7 +167,15 @@ function updateCanvas() {
         newButton.style.left = x+50+plusOffset+"px";
         newButton.style.top = y+13+"px";
         newButton.style.borderRadius = "8px";
-        newButton.onclick = function() { d++; updateCanvas(); };
+        newButton.onclick = function() { 
+            for (let i=0; i<sizes.length; i++) {
+                if (sizes[i] == d) {
+                    sizes[i] = d+1;
+                }
+            }
+            d++; 
+            updateCanvas(); 
+        };
         document.body.appendChild(newButton);
         if (d > 1) {
             let newButton2 = document.createElement("button");
@@ -176,7 +183,15 @@ function updateCanvas() {
             newButton2.style.left = x+40+minusOffset+"px";
             newButton2.style.top = y+13+"px";
             newButton2.style.borderRadius = "8px";
-            newButton2.onclick = function() { d--; updateCanvas(); };
+            newButton2.onclick = function() { 
+                for (let i=0; i<sizes.length; i++) {
+                    if (sizes[i] == d) {
+                        sizes[i] = d-1;
+                    }
+                }
+                d--; 
+                updateCanvas(); 
+            };
             document.body.appendChild(newButton2);
         }
 
@@ -350,22 +365,23 @@ function updateCanvas() {
         // Make sure we have a non-trivial matrix
         if (A.length > 0) {
 
-            // Print if it's not too big
-            if (Math.max(A.length, A[0].length) < 20) {
-                console.log("Original matrix:");
-                for (let i = 0; i < A.length; ++i) {
-                    console.log(A[i]);
-                }
-            }
+            // Print the matrix
+            /*console.log("Original matrix:");*/
+            /*for (let i = 0; i < A.length; ++i) {*/
+                /*console.log(JSON.stringify(A[i]));*/
+            /*}*/
 
-            // Peform row reduction
+            // Peform row reduction TODO issues for d2n4
             let reducedA = JSON.parse(JSON.stringify(A));
-            for (let i = 0; i < Math.min(reducedA[0].length, reducedA.length); ++i) {
+            let matWidth = reducedA[0].length;
+            let matHeight = reducedA.length;
+            let matDim = Math.min(matWidth, matHeight);
+            for (let i = 0; i < matDim; ++i) {
 
                 // Search for a non-zero element in this column
                 let nonZeroInd = -1;
                 let nonZeroRow = null;
-                for (let j = i; j < reducedA.length; ++j) {
+                for (let j = i; j < matHeight; ++j) {
                     if (Math.abs(reducedA[j][i]) > 1e-10) {
                         nonZeroInd = j;
                         nonZeroRow = JSON.parse(JSON.stringify(reducedA[j]));
@@ -379,29 +395,29 @@ function updateCanvas() {
                 }
 
                 // Make the corresponding row start with a one
-                for (let k = 0; k < reducedA[0].length; k++) {
-                    reducedA[i][k] += ((1.0 - reducedA[i][i]) / nonZeroRow[i]) * nonZeroRow[k];
+                let coeff = ((1.0 - reducedA[i][i]) / nonZeroRow[i]);
+                for (let k = 0; k < matWidth; k++) {
+                    reducedA[i][k] += coeff * nonZeroRow[k];
                 }
 
                 // Zero all the other elements in this column
-                for (let j = 0; j < reducedA.length; ++j) {
+                for (let j = 0; j < matHeight; ++j) {
                     if (j !== i && Math.abs(reducedA[j][i]) > 1e-10) {
-                        let ogVal = reducedA[j][i];
-                        for (let k = 0; k < reducedA[0].length; k++) {
-                            reducedA[j][k] -= (ogVal / nonZeroRow[i]) * nonZeroRow[k];
+                        // reducedA.row(j) -= (reducedA(j,i) / nonZeroRow(i)) * nonZeroRow;
+                        let coeff = (reducedA[j][i] / nonZeroRow[i]);
+                        for (let k = 0; k < matWidth; k++) {
+                            reducedA[j][k] -= coeff * nonZeroRow[k];
                         }
                     }
                 }
 
             }
 
-            // If the matrix isn't too big, print it
-            if (Math.max(reducedA.length, reducedA[0].length) < 20) {
-                console.log("Reduced matrix:");
-                for (let j = 0; j < reducedA.length; ++j) {
-                    console.log(reducedA[j]);
-                }
-            }
+            // Print the matrix
+            /*console.log("Reduced matrix:");*/
+            /*for (let j = 0; j < reducedA.length; ++j) {*/
+                /*console.log(JSON.stringify(reducedA[j]));*/
+            /*}*/
 
             // For each row of the reduced matrix, get the first one and set the chains
             for (let i = 0; i < Math.min(reducedA[0].length, reducedA.length); ++i) {
@@ -522,7 +538,7 @@ function gradientDescent() {
         }
 
         // If no improvement, decrease the learning rate
-        if (prevMSE === bestMSE) {
+        if (Math.abs(prevMSE - bestMSE) < learningRate) {
             console.log("Decreasing learning rate");
             learningRate *= 0.5;
         }
@@ -537,10 +553,10 @@ function gradientDescent() {
 
         console.log(`Iteration ${currentIters}, MSE: ${mse}`);
 
-        // Redraw
-        updateCanvas();
-
     }
+
+    // Redraw
+    updateCanvas();
 
 }
 
@@ -611,7 +627,7 @@ function mouseMove(event) {
         // Redraw
         updateCanvas();
 
-    // Dragging the background TODO
+    // Dragging the background
     } else if (dragIndex === -2) {
         dragOffsetX = initialDragOffsetX + (event.clientX - initialMouseX);
         dragOffsetY = initialDragOffsetY + (event.clientY - initialMouseY);
