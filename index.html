@@ -64,6 +64,12 @@ function onLoad() {
     // Initialize the canvas
     canvas = document.getElementById("canv");
     ctx = canvas.getContext("2d");
+
+    // Set the initial offset
+    dragOffsetX = 0;
+    dragOffsetY = window.innerHeight / 8;
+
+    // First render
     updateCanvas();
 
 }
@@ -371,7 +377,7 @@ function updateCanvas() {
                 /*console.log(JSON.stringify(A[i]));*/
             /*}*/
 
-            // Peform row reduction TODO issues for d2n4
+            // Peform row reduction
             let reducedA = JSON.parse(JSON.stringify(A));
             let matWidth = reducedA[0].length;
             let matHeight = reducedA.length;
