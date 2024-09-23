@@ -22,6 +22,7 @@ private:
 	std::vector<std::pair<double,double>> positions;
 	std::pair<double,double> startPosition;
 	std::pair<int,int> vecIndices;
+	std::vector<int> basisIndices;
 	std::vector<std::pair<double, Chain*>> relation;
 	std::vector<std::pair<double, int>> relationInds;
     double finalX = 0;
@@ -92,6 +93,13 @@ public:
 		}
 
 	}
+
+    // Set the radius
+    void setRadius(double radius_) {
+        radius = radius_;
+		radiusCircle.setRadius(radius);
+		radiusCircle.setOrigin(radius, radius);
+    }
 
     // Get the radius
     double getRadius() {
@@ -296,7 +304,7 @@ public:
 	}
 
 	// Main constructor
-    Chain(int numVectors_, std::pair<double,double> startPosition_, double vectorLength_, double circleRadius_, std::pair<int,int> vecIndices_, bool fixFirst_) {
+    Chain(int numVectors_, std::pair<double,double> startPosition_, double vectorLength_, double circleRadius_, std::pair<int,int> vecIndices_, bool fixFirst_, std::vector<int> basisIndices_) {
 
 		// Set the size of the points
 		numVectors = numVectors_;
@@ -305,6 +313,7 @@ public:
 		vecIndices = vecIndices_;
 		radius = circleRadius_;
 		fixFirst = fixFirst_;
+        basisIndices = basisIndices_;
 
 		// For each vector
         for (int i = 0; i < numVectors; ++i) {
@@ -344,6 +353,11 @@ public:
 		// Set all the line positions
 		update();
 
+    }
+
+    // Get the basis indices
+    std::vector<int> getBasisIndices() {
+        return basisIndices;
     }
 
 	// Given a delta vector, move a given point
@@ -783,6 +797,7 @@ int main(int argc, char* argv[]) {
 	int stepsFull = 100000;
 	int stepsPartial = 1000;
     int maxIters = 1000;
+    double lengthOG = 100;
     bool visual = true;
 
 	// Parse the command line arguments
@@ -835,6 +850,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  --optimshotgun     Run optim from many points" << std::endl;
             std::cout << "  --minima           Travel in the direction of decreasing local minima" << std::endl;
             std::cout << "  --decrease         Decrease the dimension by one, adiabatically" << std::endl;
+            std::cout << "  --exact            Use known constructions to find an exact solution" << std::endl;
             std::cout << "  --stop             Stop, closing the window" << std::endl;
 			return 0;
 
@@ -958,11 +974,11 @@ int main(int argc, char* argv[]) {
 						
 					// Orthogonality
 					if (i == j) {
-                        chains.push_back(Chain(N[0], {currentX, currentY}, sqrt(d)*scaling/double(d), 0.0, {gridX, gridY}, fixFirst));
+                        chains.push_back(Chain(N[0], {currentX, currentY}, sqrt(d)*scaling/double(d), 0.0, {gridX, gridY}, fixFirst, {int(i),int(k),int(j),int(l)}));
 
 					// Mutually unbiasedness
 					} else {
-                        chains.push_back(Chain(N[0], {currentX, currentY}, sqrt(d)*scaling/double(d), scaling, {gridX, gridY}, fixFirst));
+                        chains.push_back(Chain(N[0], {currentX, currentY}, sqrt(d)*scaling/double(d), scaling, {gridX, gridY}, fixFirst, {int(i),int(k),int(j),int(l)}));
 					}
 
 				}
@@ -987,15 +1003,16 @@ int main(int argc, char* argv[]) {
                                     "random", 
                                     "check", 
                                     "check2", 
-                                    "minima", 
-                                    "gradient", 
-                                    "gradient2", 
                                     "optim", 
                                     "optimshotgun", 
+                                    "minima", 
+                                    "decrease", 
+                                    "exact", 
+                                    "gradient", 
+                                    "gradient2", 
                                     "shotgun", 
                                     "annealFull", 
                                     "annealPartial", 
-                                    "decrease", 
                                     "fix/unfix first angle",
                                     "interrupt",
                                 };
@@ -1533,113 +1550,167 @@ int main(int argc, char* argv[]) {
             // If we're done
             modes.erase(modes.begin());
 
-        // If decreasing the dimension
+        // If setting to exact solution
+        } else if (mode == "exact") {
+
+            std::cout << "finding exact solution" << std::endl;
+
+            // Number of bases
+            int n = N.size();
+
+            // Create the X operator
+            Eigen::MatrixXcd X = Eigen::MatrixXcd::Zero(d,d);
+            for (int i=0; i<d-1; i++) {
+                X(i+1,i) = 1;
+            }
+            X(0,d-1) = 1;
+
+            // Create the Z operator
+            Eigen::MatrixXcd Z = Eigen::MatrixXcd::Zero(d,d);
+            std::complex<double> omega = std::exp(2.0*M_PI*std::complex<double>(0,1)/double(d));
+            for (int i=0; i<d; i++) {
+                Z(i,i) = std::pow(omega, i);
+            }
+
+            // Create the various operators (X, Z, XZ, XZZ, etc.)
+            std::vector<Eigen::MatrixXcd> ops = {Z, X};
+            for (int i=0; i<n-2; i++) {
+                Eigen::MatrixXcd newOp = Z;
+                for (int j=0; j<i; j++) {
+                    newOp = Z*newOp;
+                }
+                ops.push_back(X*newOp);
+            }
+
+            // Get the eigenbases of each operator
+            std::vector<std::vector<Eigen::VectorXcd>> eigenbases;
+            for (int i=0; i<ops.size(); i++) {
+                std::cout << "Basis " << i << ":" << std::endl;
+                Eigen::ComplexEigenSolver<Eigen::MatrixXcd> es(ops[i]);
+                std::vector<Eigen::VectorXcd> newBasis;
+                for (int j=0; j<d; j++) {
+                    newBasis.push_back(es.eigenvectors().col(j));
+                    std::cout << "Vector " << j << ": " << newBasis[j].transpose() << std::endl;
+                    std::cout << "Eigenvalue: " << es.eigenvalues()[j] << std::endl;
+                }
+                std::cout << std::endl << std::endl;
+                eigenbases.push_back(newBasis);
+            }
+
+            // For each vector in each basis
+            double maxError = 0;
+            for (int i=0; i<n; i++) {
+                for (int k=0; k<N[i]; k++) {
+
+                    // For each other vector in each basis
+                    for (int j=i+1; j<n; j++) {
+                        for (int l=0; l<N[j]; l++) {
+
+                            // Calculate the error
+                            maxError = std::max(maxError, std::abs(std::abs(eigenbases[i][k].dot(eigenbases[j][l]))-1.0/std::sqrt(double(d))));
+
+                        }
+                    }
+
+                }
+            }
+            std::cout << "d=" << d << " n=" << n << " error=" << maxError << std::endl;
+
+            // Put these values into the chains
+            for (auto& chain : chains) {
+                std::pair<int,int> vecIndices = chain.getVecIndices();
+                std::vector<double> angles(d);
+                for (int i=0; i<d; i++) {
+                    std::vector<int> inds = chain.getBasisIndices();
+                    double angle1 = std::arg(eigenbases[inds[0]][inds[1]][i]);
+                    double angle2 = std::arg(eigenbases[inds[2]][inds[3]][i]);
+                    angles[i] = angle1 - angle2;
+                }
+                chain.setAngles(angles);
+            }
+
+            // Update the chains
+            if (visual) {
+                for (long unsigned int i=0; i<chains.size(); ++i) {
+                    chains[i].update();
+                }
+            }
+
+            // Done
+            modes.erase(modes.begin());
+
+
+        // If decreasing the dimension TODO
         } else if (mode == "decrease") {
 
-            // Each time we're stable, reduce the length a bit
-            if (checkDelta < 1e-6) {
-                checkDelta = 3.0;
+            for (int l=0; l<itersPerFrame; l++) {
 
-                // Adjust the lengths
-                unsigned long int numDone = 0;
-                for (auto& chain : chains) {
-                    std::vector<double> lengths = chain.getVectorLengths();
-                    double deltaL = 0.5;
-                    for (unsigned long int i=0; i<lengths.size(); ++i) {
-                        if (int(i) >= d) {
-                            if (lengths[i] >= deltaL) {
-                                lengths[i] -= deltaL;
-                            } else {
-                                lengths[i] = 0.0;
-                                numDone++;
-                            }
-                        } else {
-                            //if (lengths[i] <= scaling*sqrt(d-1)/(d-1) - deltaL) {
-                                //lengths[i] += deltaL;
-                            //} else {
-                                //lengths[i] = scaling*sqrt(d-1)/(d-1);
-                                //numDone++;
-                            //}
-                        }
-                    }
-                    chain.setVectorLengths(lengths);
-                }
+                // Start from the current angles
+                Eigen::VectorXd x = getAnglesEigen(chains);
 
-                // When all the chains are the new size
-                //if (numDone == chains.size()*d) {
-                if (numDone == chains.size()-d) {
-                    modes.erase(modes.begin());
-                }
+                // Settings for optim
+                optim::algo_settings_t settings;
+                settings.print_level = verbose ? 1 : 0;
+                settings.iter_max = 100;
 
-            }
+                // The data object passed to the optim function
+                ll_data_t opt_data;
+                opt_data.chains = &chains;
+                opt_data.fixFirst = fixFirst;
 
-            // Calculate the objective
-            double bestObjective = getObjective(chains);
-            double maxDiff = 0.0;
-            for (unsigned long int i=0; i<chains.size(); ++i) {
-                maxDiff = std::max(maxDiff, chains[i].getObjective());
-            }
-            std::cout << "sqr=" << bestObjective << "  max=" << maxDiff << "  del=" << checkDelta << "  len=" << chains[0].getVectorLengths()[1] << "     \r" << std::flush;
+                // Run the optimisation
+                bool success = optim::lbfgs(x, optFunc, &opt_data, settings);
 
-            // Do a few iterations per display frame
-            for (int j=0; j<itersPerFrame; j++) {
-
-                // Keep track of each time we update the best objective
-                int numChanges = 0;
-
-                // For each non-fixed chain
-                for (unsigned long int j=0; j<chains.size(); ++j) {
-                    if (chains[j].isFixed()) {
-                        continue;
-                    }
-
-                    // Check the effect of moving each direction
-                    std::vector<double> angles = chains[j].getAngles();
-                    for (unsigned long int k=0; k<angles.size(); ++k) {
-                        if (k == 0 && fixFirst) {
-                            continue;
-                        }
-
-                        // Save the old angle
-                        double oldAngle = angles[k];
-
-                        // Check plus checkDelta
-                        angles[k] += checkDelta;
-                        chains[j].setAngles(angles);
-                        double objective = getObjective(chains);
-                        if (objective >= bestObjective) {
-                            angles[k] = oldAngle;
-                        } else {
-                            bestObjective = objective;
-                            numChanges++;
-                            continue;
-                        }
-
-                        // Check minus checkDelta
-                        angles[k] -= checkDelta;
-                        chains[j].setAngles(angles);
-                        objective = getObjective(chains);
-                        if (objective >= bestObjective) {
-                            angles[k] = oldAngle;
-                        } else {
-                            bestObjective = objective;
-                            numChanges++;
-                            continue;
-                        }
-
-                    }
-                    chains[j].setAngles(angles);
-
-                }
-
-                // If no changes, decrease checkDelta
-                if (numChanges == 0) {
-                    checkDelta *= 0.1;
-                    if (checkDelta < 1e-10) {
+                // If any of the values are infinite, skip
+                bool allGood = true;
+                for (int i=0; i<x.size(); i++) {
+                    if (std::abs(x(i)) > 1e10) {
+                        allGood = false;
                         break;
                     }
                 }
+                if (!allGood) {
+                    std::cout << "Some values are infinite, stopping" << std::endl;
+                    break;
+                }
 
+                // Run the final values
+                setAngles(chains, x);
+                double finalObj = getObjective(chains);
+
+                // Adjust the lengths
+                double deltaL = 0.001;
+                double ogLength = sqrt(d)*scaling/double(d);
+                double refLength = 100;
+                unsigned long int numDone = 0;
+                double dPrime = d;
+                for (auto& chain : chains) {
+                    std::vector<double> lengths = chain.getVectorLengths();
+                    for (unsigned long int i=0; i<lengths.size(); ++i) {
+                        if (int(i) == d-1) {
+                            lengths[i] -= deltaL;
+                            if (lengths[i] < 0.0) {
+                                lengths[i] = 0.0;
+                                numDone++;
+                            }
+                            refLength = lengths[i];
+                        }
+                    }
+                    chain.setVectorLengths(lengths);
+                    double currentRad = chain.getRadius();
+                    dPrime = double(d) + (refLength/ogLength) - 1.0;
+                    if (std::abs(currentRad) > 1e-10) {
+                        currentRad = dPrime * ogLength / sqrt(dPrime);
+                        chain.setRadius(currentRad);
+                    }
+                }
+                std::cout << "d = " << dPrime << " obj = " << finalObj << "  iters = " << itersPerFrame << "  \r" << std::flush;
+            }
+            std::cout << std::endl;
+
+            // If all chains at the right length, stop
+            if (numDone == chains.size()) {
+                modes.erase(modes.begin());
             }
 
             // Update the visuals
@@ -2073,7 +2144,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-        // Use the optim library TODO
+        // Use the optim library
         } else if (mode == "optimshotgun") {
 
             // Calculate the objective
