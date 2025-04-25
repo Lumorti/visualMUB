@@ -58,7 +58,7 @@ let sep = 90;
 let offsetX = 0;
 let offsetY = 200;
 let mse = 0.0;
-let gridSpacing = 80;
+let gridSpacing = 60;
 
 // For converting touch events to mouse events
 // from https://stackoverflow.com/questions/1517924/javascript-mapping-touch-events-to-mouse-events
@@ -216,7 +216,6 @@ function updateCanvas() {
                 }
             }
             d++; 
-            updateCanvas(); 
         };
         document.body.appendChild(newButton);
         if (d > 1) {
@@ -232,7 +231,6 @@ function updateCanvas() {
                     }
                 }
                 d--; 
-                updateCanvas(); 
             };
             document.body.appendChild(newButton2);
         }
@@ -243,7 +241,7 @@ function updateCanvas() {
         newButton3.style.left = x+160+plusOffset+"px";
         newButton3.style.top = y+13+"px";
         newButton3.style.borderRadius = "8px";
-        newButton3.onclick = function() { n++; updateCanvas(); };
+        newButton3.onclick = function() { n++; };
         document.body.appendChild(newButton3);
         if (n > 1) {
             let newButton4 = document.createElement("button");
@@ -251,7 +249,7 @@ function updateCanvas() {
             newButton4.style.left = x+160+minusOffset+"px";
             newButton4.style.top = y+13+"px";
             newButton4.style.borderRadius = "8px";
-            newButton4.onclick = function() { n--; updateCanvas(); };
+            newButton4.onclick = function() { n--; };
             document.body.appendChild(newButton4);
         }
 
@@ -263,7 +261,7 @@ function updateCanvas() {
                 newButton5.style.left = x+280+sep*i+plusOffset+"px";
                 newButton5.style.top = y+13+"px";
                 newButton5.style.borderRadius = "8px";
-                newButton5.onclick = function() { sizes[i]++; updateCanvas(); };
+                newButton5.onclick = function() { sizes[i]++; };
                 document.body.appendChild(newButton5);
             }
             if (sizes[i] > 1) {
@@ -272,7 +270,7 @@ function updateCanvas() {
                 newButton6.style.left = x+280+sep*i+minusOffset+"px";
                 newButton6.style.top = y+13+"px";
                 newButton6.style.borderRadius = "8px";
-                newButton6.onclick = function() { sizes[i]--; updateCanvas(); };
+                newButton6.onclick = function() { sizes[i]--; };
                 document.body.appendChild(newButton6);
             }
         }
@@ -600,9 +598,6 @@ function gradientDescent() {
 
     }
 
-    // Redraw
-    updateCanvas();
-
 }
 
 // Update the error
@@ -669,14 +664,10 @@ function mouseMove(event) {
         // Enforce the constraints
         constrainAngles();
 
-        // Redraw
-        updateCanvas();
-
     // Dragging the background
     } else if (dragIndex === -2) {
         dragOffsetX = initialDragOffsetX + (event.clientX - initialMouseX);
         dragOffsetY = initialDragOffsetY + (event.clientY - initialMouseY);
-        updateCanvas();
 
     }
 
@@ -747,7 +738,7 @@ function mouseUp(event) {
 </script>
 </head>
 
-<body onload="onLoad()" onresize="updateCanvas()" onmousemove="mouseMove(event)" onmousedown="mouseDown(event)" onmouseup="mouseUp(event)">
+<body onload="onLoad()" onmousemove="mouseMove(event)" onmousedown="mouseDown(event)" onmouseup="mouseUp(event)">
     <canvas id="canv"></canvas>
 </body>
 
